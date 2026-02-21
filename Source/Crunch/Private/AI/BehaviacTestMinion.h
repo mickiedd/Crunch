@@ -60,9 +60,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviac AI")
 	bool bUseBehaviacAI = true;
 
-	// Path to Behaviac XML tree asset (e.g., "MinionBehaviacTree")
+	// Path to Behaviac XML tree asset (e.g., "MinionTestTree")
+	// Note: Behaviac plugin prepends /Game/BehaviacData/ automatically
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviac AI")
-	FString BehaviorTreeAssetPath = "/Game/AI/Behaviac/MinionTestTree";
+	FString BehaviorTreeAssetPath = "MinionTestTree";
 
 private:
 	// Behaviac AI component

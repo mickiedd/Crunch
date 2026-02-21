@@ -135,6 +135,8 @@ Content/Megascans/
 # Keep AI content (important for project functionality)
 !Content/AI/
 !Content/AI/**
+!Content/BehaviacData/
+!Content/BehaviacData/**
 
 # Keep Behaviac plugin source
 !Plugins/BehaviacPlugin/Source/

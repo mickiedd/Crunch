@@ -62,7 +62,7 @@ public:
 
 	// Path to Behaviac XML tree asset (e.g., "MinionBehaviacTree")
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviac AI")
-	FString BehaviorTreeAssetPath = "MinionTestTree";
+	FString BehaviorTreeAssetPath = "/Game/AI/Behaviac/MinionTestTree";
 
 private:
 	// Behaviac AI component

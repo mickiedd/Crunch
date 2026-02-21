@@ -1,0 +1,185 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GAS/CGameplayAbilityTypes.h"
+#include "GameFramework/Character.h"
+#include "GameplayEffectTypes.h"
+#include "GameplayTagContainer.h"
+#include "AbilitySystemInterface.h"
+#include "GenericTeamAgentInterface.h"
+#include "Widgets/RenderActorTargetInterface.h"
+// ----------------------------------------------------------------------------
+// File: CCharacter.h
+// Purpose: Base character class integrating multiple subsystems: Gameplay
+//          Ability System (GAS), Teams, UI (overhead widget), stun/death &
+//          respawn flow, and AI perception stimuli source. Provides common
+//          hooks and utility for both player and AI characters.
+// Key API:
+//  - GAS: GetAbilitySystemComponent, Server_SendGameplayEventToSelf,
+//          UpgradeAbilityWithInputID, attribute change handlers.
+//  - Lifecycle: OnStun/Recover, OnDead/OnRespawn, RespawnImmediately,
+//               ragdoll and death montage sequencing.
+//  - Teams: SetGenericTeamId/GetGenericTeamId with replication via OnRep_TeamID.
+//  - UI: Overhead status widget visibility logic.
+//  - AI: Toggle AIPerceptionStimuli source for sensing systems.
+// ----------------------------------------------------------------------------
+#include "CCharacter.generated.h"
+
+/**
+ * ACCharacter is the project's foundational character class that:
+ *  - Implements IAbilitySystemInterface to expose a UCAbilitySystemComponent
+ *    and drives ability-related events/attributes (move speed, max health/mana,
+ *    aim/focus tags, death/stun tags).
+ *  - Implements IGenericTeamAgentInterface to participate in team attitude
+ *    queries, with replicated TeamID and OnRep_TeamID hook.
+ *  - Implements IRenderActorTargetInterface for UI/preview capture transforms.
+ *  - Manages UI (overhead status widget) with distance-based visibility.
+ *  - Handles stun, death, ragdoll, and respawn state machines including
+ *    montage timing and timers.
+ *  - Registers an AIPerceptionStimuliSourceComponent to interact with AI sight.
+ */
+UCLASS()
+class ACCharacter : public ACharacter, public IAbilitySystemInterface, public IGenericTeamAgentInterface, public IRenderActorTargetInterface
+{
+	GENERATED_BODY()
+
+public:
+	// Sets default values for this character's properties
+	ACCharacter();
+	void ServerSideInit();
+	void ClientSideInit();
+	bool IsLocallyControlledByPlayer() const;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	const TMap<ECAbilityInputID, TSubclassOf<UGameplayAbility>>& GetAbilities() const;
+	virtual FVector GetCaptureLocalPosition() const override;
+	virtual FRotator GetCaptureLocalRotation() const override;
+
+private:
+	UPROPERTY(EditDefaultsOnly, Category = "Capture")
+	FVector HeadshotCaptureLocalPosition;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Capture")
+	FRotator HeadshotCaptureLocalRotation;
+
+protected:
+	// Called when the game starts or when spawned
+
+	virtual void BeginPlay() override;
+	virtual void PossessedBy(AController* NewController) override;
+
+public:	
+	// Called every frame
+	virtual void Tick(float DeltaTime) override;
+
+	// Called to bind functionality to input
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	
+	/**********************************************************************/
+	/*                             Gameplay Ability                       */
+	/**********************************************************************/
+public:
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SendGameplayEventToSelf(const FGameplayTag& EventTag, const FGameplayEventData& EventData);
+	FORCEINLINE bool GetIsInFocusMode() const { return bIsInFocusMode; }
+protected:
+	void UpgradeAbilityWithInputID(ECAbilityInputID InputID);
+private:
+	void BindGASChangeDelegates();
+	void DeathTagUpdated(const FGameplayTag Tag, int32 NewCount);
+	void StunTagUpdated(const FGameplayTag Tag, int32 NewCount);
+	void AimTagUpdated(const FGameplayTag Tag, int32 NewCount);
+	void FocusTagUpdated(const FGameplayTag Tag, int32 NewCount);
+
+	bool bIsInFocusMode = false;
+
+	void SetIsAimming(bool bIsAimming);
+	virtual void OnAimStateChanged(bool bIsAimming);
+	void MoveSpeedUpdated(const FOnAttributeChangeData& Data);
+	void MoveSpeedAccelerationUpdated(const FOnAttributeChangeData& Data);
+	void MaxHealthUpdated(const FOnAttributeChangeData& Data);
+	void MaxManaUpdated(const FOnAttributeChangeData& Data);
+
+	UPROPERTY(VisibleDefaultsOnly, Category = "Gameplay Ability")
+	class UCAbilitySystemComponent* CAbilitySystemComponent;
+	UPROPERTY()
+	class UCAttributeSet* CAttributeSet;
+	/**********************************************************************/
+	/*                              UI                                    */
+	/**********************************************************************/
+private:
+	UPROPERTY(VisibleDefaultsOnly, Category = "UI")
+	class UWidgetComponent* OverHeadWidgetComponent;
+	void ConfigureOverHeadStatusWidget();
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	float HeadStatGaugeVisiblityCheckUpdateGap = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	float HeadStatGaugeVisiblityRangeSquared = 10000000.f;
+	
+	FTimerHandle HeadStatGaugeVisibilityUpdateTimerHandle;
+
+	void UpdateHeadGaugeVisibility();
+	void SetStatusGaugeEnabled(bool bIsEnabled);
+	/**********************************************************************/
+	/*                             Stun                                   */
+	/**********************************************************************/
+private:
+	UPROPERTY(EditDefaultsOnly, Category = "Stun")
+	UAnimMontage* StunMontage;
+
+	virtual void OnStun();
+	virtual void OnRecoverFromStun();
+	/**********************************************************************/
+	/*                             Death and Respawn                      */
+	/**********************************************************************/
+public:
+	bool IsDead() const;
+	void RespawnImmediately();
+private:
+	FTransform MeshRelativeTransform;
+	UPROPERTY(EditDefaultsOnly, Category = "Death")
+	float DeathMontageFinishTimeShift = -0.8f;
+	UPROPERTY(EditDefaultsOnly, Category = "Death")
+	UAnimMontage* DeathMontage;
+
+	FTimerHandle DeathMontageTimerHandle;
+
+	void DeathMontageFinished();
+	void SetRagdollEnabled(bool bIsEnabled);
+
+	void PlayDeathAnimation();
+
+	void StartDeathSequence();
+	void Respawn();
+
+	virtual void OnDead();
+	virtual void OnRespawn();
+
+	/**********************************************************************/
+	/*                               Team                                 */
+	/**********************************************************************/
+public:
+	/** Assigns Team Agent to given TeamID */
+	virtual void SetGenericTeamId(const FGenericTeamId& NewTeamID) override;
+	
+	/** Retrieve team identifier in form of FGenericTeamId */
+	virtual FGenericTeamId GetGenericTeamId() const override;
+private:
+	UPROPERTY(ReplicatedUsing = OnRep_TeamID)
+	FGenericTeamId TeamID;
+
+	UFUNCTION()
+	virtual void OnRep_TeamID();
+	/**********************************************************************/
+	/*                               AI                                 */
+	/**********************************************************************/
+private:
+	void SetAIPerceptionStimuliSourceEnabled(bool bIsEnabled);
+	UPROPERTY()
+	class UAIPerceptionStimuliSourceComponent* PerceptionStimuliSourceComponent;
+};

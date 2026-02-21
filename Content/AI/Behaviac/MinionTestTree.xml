@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Behaviac Behavior Tree for BehaviacTestMinion
+  
+  Logic Flow:
+  1. Selector (OR logic): Try combat first, fallback to patrol
+  2. Combat Sequence (AND logic):
+     - Check if we have a target
+     - Move to the target
+     - Check if in attack range
+     - Execute attack
+  3. Patrol (fallback): If no target, just patrol
+  
+  Node Count: 7 nodes
+  Expected Behavior:
+  - If enemy perceived: chase and attack
+  - If no enemy: patrol/idle
+  
+  Properties Used:
+  - HasTarget (bool): Set by perception system
+  - DistanceToTarget (float): Updated every 0.2s
+  
+  Methods Called:
+  - HasTarget: Condition check via AI perception
+  - MoveToTarget: Action using AI movement
+  - InAttackRange: Condition check distance
+  - AttackTarget: Action triggers GAS combo ability
+  - PatrolToGoal: Action for idle behavior
+-->
+<behavior name="MinionTestTree" agenttype="BehaviacTestMinion" version="5">
+    <!-- Root: Try combat, otherwise patrol -->
+    <node class="Selector" id="1" comment="Main Decision: Combat or Patrol">
+        
+        <!-- Combat Sequence: Target -> Move -> Range Check -> Attack -->
+        <node class="Sequence" id="2" comment="Combat Behavior">
+            
+            <!-- Check if we have acquired a target -->
+            <node class="Condition" id="3" comment="Do we have a target?">
+                <property Method="HasTarget" />
+            </node>
+            
+            <!-- Move towards the target -->
+            <node class="Action" id="4" comment="Chase target">
+                <property Method="MoveToTarget" />
+            </node>
+            
+            <!-- Check if close enough to attack -->
+            <node class="Condition" id="5" comment="In melee range?">
+                <property Method="InAttackRange" />
+            </node>
+            
+            <!-- Execute attack combo -->
+            <node class="Action" id="6" comment="Strike!">
+                <property Method="AttackTarget" />
+            </node>
+            
+        </node>
+        
+        <!-- Fallback: Patrol when no target -->
+        <node class="Action" id="7" comment="Default patrol">
+            <property Method="PatrolToGoal" />
+        </node>
+        
+    </node>
+</behavior>

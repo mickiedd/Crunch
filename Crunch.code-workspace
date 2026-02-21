@@ -1,0 +1,205 @@
+{
+	"folders": [
+		{
+			"name": "Crunch (Root)",
+			"path": "."
+		},
+		{
+			"name": "Source",
+			"path": "./Source"
+		},
+		{
+			"name": "Content",
+			"path": "./Content"
+		},
+		{
+			"name": "Plugins/Behaviac",
+			"path": "./Plugins/BehaviacPlugin"
+		},
+		{
+			"name": "Documentation",
+			"path": ".",
+			"fileExclude": {
+				"**/*": true,
+				"*.md": false
+			}
+		}
+	],
+	"settings": {
+		// Editor settings
+		"editor.tabSize": 4,
+		"editor.insertSpaces": false,
+		"editor.detectIndentation": true,
+		"editor.rulers": [120],
+		"editor.formatOnSave": false,
+		
+		// Files settings
+		"files.encoding": "utf8",
+		"files.trimTrailingWhitespace": true,
+		"files.insertFinalNewline": true,
+		"files.associations": {
+			"*.uproject": "json",
+			"*.uplugin": "json",
+			"*.xml": "xml"
+		},
+		"files.exclude": {
+			"**/.DS_Store": true,
+			"**/Binaries": true,
+			"**/DerivedDataCache": true,
+			"**/Intermediate": true,
+			"**/Saved": true,
+			"**/*.sln": true,
+			"**/*.suo": true,
+			"**/*.xcodeproj": true,
+			"**/*.xcworkspace": true
+		},
+		"files.watcherExclude": {
+			"**/Binaries/**": true,
+			"**/DerivedDataCache/**": true,
+			"**/Intermediate/**": true,
+			"**/Saved/**": true
+		},
+		
+		// Search settings
+		"search.exclude": {
+			"**/Binaries": true,
+			"**/DerivedDataCache": true,
+			"**/Intermediate": true,
+			"**/Saved": true,
+			"**/*.uasset": true,
+			"**/*.umap": true
+		},
+		
+		// C++ settings
+		"C_Cpp.intelliSenseEngine": "default",
+		"C_Cpp.default.compilerPath": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++",
+		"C_Cpp.default.cppStandard": "c++17",
+		"C_Cpp.default.macFrameworkPath": [
+			"/System/Library/Frameworks",
+			"/Library/Frameworks"
+		],
+		"C_Cpp.default.includePath": [
+			"${workspaceFolder}/Source/**",
+			"${workspaceFolder}/Plugins/**",
+			"/Volumes/M2/Engine/UE_5.5/Engine/Source/**"
+		],
+		"C_Cpp.default.defines": [
+			"UE_BUILD_DEVELOPMENT=1",
+			"WITH_EDITOR=1",
+			"UE_EDITOR=1"
+		],
+		
+		// File patterns for UE5
+		"files.associations": {
+			"*.uproject": "json",
+			"*.uplugin": "json",
+			"*.Build.cs": "csharp",
+			"*.Target.cs": "csharp"
+		},
+		
+		// XML formatting (for Behaviac trees)
+		"[xml]": {
+			"editor.defaultFormatter": "redhat.vscode-xml",
+			"editor.tabSize": 2
+		},
+		
+		// Terminal settings
+		"terminal.integrated.cwd": "${workspaceFolder}",
+		"terminal.integrated.env.osx": {
+			"UE_ROOT": "/Volumes/M2/Engine/UE_5.5"
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-vscode.cpptools",
+			"ms-vscode.cpptools-extension-pack",
+			"redhat.vscode-xml",
+			"ms-dotnettools.csharp",
+			"streetsidesoftware.code-spell-checker"
+		]
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "Launch UE5 Editor (Crunch)",
+				"type": "lldb",
+				"request": "launch",
+				"program": "/Volumes/M2/Engine/UE_5.5/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor",
+				"args": [
+					"${workspaceFolder}/Crunch.uproject"
+				],
+				"cwd": "${workspaceFolder}",
+				"preLaunchTask": "Build Crunch (Development)"
+			},
+			{
+				"name": "Attach to UE5 Editor",
+				"type": "lldb",
+				"request": "attach",
+				"program": "/Volumes/M2/Engine/UE_5.5/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor",
+				"waitFor": true
+			}
+		]
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "Build Crunch (Development)",
+				"type": "shell",
+				"command": "xcodebuild",
+				"args": [
+					"-workspace",
+					"Crunch (Mac).xcworkspace",
+					"-scheme",
+					"CrunchEditor",
+					"-configuration",
+					"Development",
+					"build"
+				],
+				"group": {
+					"kind": "build",
+					"isDefault": true
+				},
+				"problemMatcher": "$gcc",
+				"presentation": {
+					"reveal": "always",
+					"panel": "shared"
+				}
+			},
+			{
+				"label": "Clean Crunch",
+				"type": "shell",
+				"command": "xcodebuild",
+				"args": [
+					"-workspace",
+					"Crunch (Mac).xcworkspace",
+					"-scheme",
+					"CrunchEditor",
+					"-configuration",
+					"Development",
+					"clean"
+				],
+				"problemMatcher": []
+			},
+			{
+				"label": "Regenerate Project Files",
+				"type": "shell",
+				"command": "/Volumes/M2/Engine/UE_5.5/Engine/Build/BatchFiles/Mac/GenerateProjectFiles.sh",
+				"args": [
+					"-project=${workspaceFolder}/Crunch.uproject"
+				],
+				"problemMatcher": []
+			},
+			{
+				"label": "Open in UE5 Editor",
+				"type": "shell",
+				"command": "open",
+				"args": [
+					"${workspaceFolder}/Crunch.uproject"
+				],
+				"problemMatcher": []
+			}
+		]
+	}
+}

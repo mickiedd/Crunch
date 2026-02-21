@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crunch GAS Abilities</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial; margin: 24px; line-height: 1.45; }
+    .diagram { margin: 24px 0; background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    h1, h2 { margin-top: 28px; }
+    .stats { color: #333; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    (function initMermaid(){
+      if (window.mermaid && mermaid.initialize) {
+        mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+      } else { setTimeout(initMermaid, 50); }
+    })();
+  </script>
+</head>
+<body>
+  <h1>Crunch GAS: Ability Inventory</h1>
+  <p class="stats">
+    Total abilities detected: <strong>12</strong>
+    <br />Active (GA_*): <strong>9</strong>
+    <br />Passive (GAP_*): <strong>2</strong>
+    <br />Other: <strong>1</strong> (UpperCut)
+  </p>
+
+  <h2>Overview</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  ASC[Ability System]
+
+  %% Active Abilities
+  GA_Shoot[GA_Shoot]
+  GA_Blink[GA_Blink]
+  GA_Dash[GA_Dash]
+  GA_Combo[GA_Combo]
+  GA_Blackhole[GA_Blackhole]
+  GA_Lazer[GA_Lazer]
+  GA_GroundBlast[GA_GroundBlast]
+  GA_Tornado[GA_Tornado]
+  GA_Freeze[GA_Freeze]
+
+  %% Passive Abilities
+  GAP_Dead[GAP_Dead]
+  GAP_Launched[GAP_Launched]
+
+  %% Other naming
+  UpperCut[UpperCut]
+
+  ASC --> GA_Shoot
+  ASC --> GA_Blink
+  ASC --> GA_Dash
+  ASC --> GA_Combo
+  ASC --> GA_Blackhole
+  ASC --> GA_Lazer
+  ASC --> GA_GroundBlast
+  ASC --> GA_Tornado
+  ASC --> GA_Freeze
+  ASC --> GAP_Dead
+  ASC --> GAP_Launched
+  ASC --> UpperCut
+  </div>
+
+  <h2>By Category</h2>
+  <div class="diagram mermaid">
+flowchart LR
+  subgraph Active
+    A1[GA_Shoot]
+    A2[GA_Blink]
+    A3[GA_Dash]
+    A4[GA_Combo]
+    A5[GA_Blackhole]
+    A6[GA_Lazer]
+    A7[GA_GroundBlast]
+    A8[GA_Tornado]
+    A9[GA_Freeze]
+  end
+  subgraph Passive
+    P1[GAP_Dead]
+    P2[GAP_Launched]
+  end
+  subgraph Other
+    O1[UpperCut]
+  end
+  </div>
+</body>
+</html>

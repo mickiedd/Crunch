@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crunch GAS Diagrams</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 24px; line-height: 1.4; }
+    h1, h2 { margin-top: 28px; }
+    .diagram { margin: 24px 0; background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .note { color: #555; font-size: 0.95rem; }
+    .toc a { text-decoration: none; }
+    .toc li { margin: 6px 0; }
+    code { background: #f6f8fa; padding: 2px 6px; border-radius: 4px; }
+  </style>
+  <!-- Mermaid v10 CDN (UMD build for file:// compatibility) -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    // Initialize after script load; works over file:// and http(s)://
+    (function initMermaid() {
+      if (window.mermaid && typeof window.mermaid.initialize === 'function') {
+        window.mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+      } else {
+        // Retry shortly if CDN is slow
+        setTimeout(initMermaid, 50);
+      }
+    })();
+  </script>
+</head>
+<body>
+  <h1>Crunch: GAS Subsystem Diagrams</h1>
+  <p class="note">This page visualizes key Mermaid flowcharts for the Gameplay Ability System (GAS) and its interactions with other subsystems.</p>
+
+  <h2>Table of Contents</h2>
+  <ol class="toc">
+    <li><a href="#high-level">High-level subsystem relationships</a></li>
+    <li><a href="#lifecycle">Ability activation lifecycle</a></li>
+    <li><a href="#targeting">Targeting and team-filtering flow</a></li>
+    <li><a href="#effects">Damage/effects with calculations</a></li>
+    <li><a href="#ui">UI Widgets and GAS data/cues</a></li>
+    <li><a href="#net">Networking and prediction responsibilities</a></li>
+    <li><a href="#uppercut">Concrete example: UpperCut</a></li>
+    <li><a href="#blink-freeze">Targeted ability example: GA_Blink and GA_Freeze</a></li>
+    <li><a href="#dash">Dash ability and nearby target interaction</a></li>
+  </ol>
+
+  <h2 id="high-level">High-level subsystem relationships (GAS at the center)</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  GAS[Gameplay Ability System]
+  Abilities[Abilities]
+  Effects[Gameplay Effects]
+  Attrs[Attribute Sets]
+  Tags[Gameplay Tags]
+  Targeting[Targeting Actors]
+  Character[Character]
+  Player[Player Controller]
+  Anim[Animations]
+  AI[AI]
+  Inventory[Inventory]
+  UI[Widgets]
+  Net[Networking]
+  Framework[Framework]
+
+  Player --> Abilities
+  Character --> GAS
+  Anim --> Abilities
+  AI --> GAS
+  Inventory --> Abilities
+  UI --> Abilities
+  Net --> GAS
+  Framework --> GAS
+  Abilities --> Effects
+  Effects --> Attrs
+  Targeting --> Abilities
+  Tags --> Abilities
+  </div>
+
+  <h2 id="lifecycle">Ability activation lifecycle across subsystems</h2>
+  <div class="diagram mermaid">
+flowchart LR
+  Inp[Input] --> Act[ActivateAbility]
+  Act --> Check[Check Tags]
+  Act --> Montage[Play Montage]
+  Act --> Target[Targeting]
+  Target --> TD[Target Data]
+  Act --> Commit[Commit]
+  Act --> Apply[Apply Effects]
+  Apply --> AAttrs[Attributes]
+  Act --> Cues[Cues]
+  Act --> Rep[Replicate]
+  Rep --> Server[Server Confirm]
+  Server --> End[EndAbility]
+  </div>
+
+  <h2 id="targeting">Targeting and team-filtering flow</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  PIn[Player Input] --> TSpawn[Spawn TargetActor]
+  TSpawn --> TTrace[Trace or Overlap]
+  TTrace --> TFilter[Filter by Team or Tags]
+  TFilter --> TConfirm[Confirm]
+  TFilter --> TCancel[Cancel]
+  TConfirm --> TReturn[Return Target Data]
+  TReturn --> TAbility[Ability Uses Target Data]
+  TAbility --> TApply[Apply Effects]
+  </div>
+
+  <h2 id="effects">Damage/effects application with calculations</h2>
+  <div class="diagram mermaid">
+flowchart LR
+  A0[Ability] --> GESelect[Select Effect]
+  GESelect --> GEApply[Apply Effect]
+  GEApply --> Modifiers[Modifiers]
+  Modifiers --> EAttrs[Attributes]
+  GEApply --> Calcs[Calculations]
+  Calcs --> Delta[Final Change]
+  Delta --> EAttrs
+  EAttrs --> ETags[Tags]
+  ETags --> Gate[Gate Abilities]
+  </div>
+
+  <h2 id="ui">UI Widgets and GAS data/cues</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  UITags[Tags and Cues] --> UIBind[Widgets Listen]
+  UIAttrs[Attributes] --> UIBind
+  UIBind --> UIHud[HUD and Widgets]
+  UIHud --> UIInput[Activate Requests]
+  UIInput --> UIAbilities[Try Activate]
+  UIAbilities --> UITags
+  UIAbilities --> UIAttrs
+  </div>
+
+  <h2 id="net">Networking and prediction responsibilities</h2>
+  <div class="diagram mermaid">
+flowchart LR
+  NIn[Client Input] --> NPred[Local Prediction]
+  NPred --> NLocal[Local Cues]
+  NPred --> NRPC[Server RPC]
+  NRPC --> NAuth[Server Validates]
+  NAuth --> NApply[Apply Effects]
+  NAuth --> NRep[Replicate State]
+  NRep --> NClients[Clients]
+  NClients --> NRecon[Reconcile]
+  </div>
+
+  <h2 id="uppercut">Concrete example: UpperCut ability interactions</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  UCIn[Press UpperCut] --> UCAct[Activate]
+  UCAct --> UCMont[Play Montage]
+  UCMont --> UCEvent[Montage Events]
+  UCEvent --> UCMap[Lookup Combo Damage]
+  UCMap --> UCDamage[Apply Damage]
+  UCEvent --> UCLaunch[Apply Launch]
+  UCAct --> UCTags[Emit Tags]
+  UCTags --> UCUI[Widgets Update]
+  UCAct --> UCNet[Predict and Replicate]
+  UCNet --> UCEnd[End]
+  </div>
+
+  <h2 id="blink-freeze">Targeted ability example: GA_Blink and GA_Freeze</h2>
+  <div class="diagram mermaid">
+flowchart LR
+  BFStart[Activate] --> BFSpawn[Spawn TargetActor]
+  BFSpawn --> BFSelect[Select Point]
+  BFSelect --> BFConfirm[Confirm]
+  BFConfirm --> BFMont[Play Montage]
+  BFMont --> BFAoE[Apply Effects]
+  BFAoE --> BFPushCC[Push or Freeze]
+  BFPushCC --> BFFinish[End]
+  </div>
+
+  <h2 id="dash">Dash ability and nearby target interaction</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  DIn[Dash Input] --> DAct[Activate]
+  DAct --> DApply[Apply Dash Effect]
+  DAct --> DScan[Spawn Detector]
+  DScan --> DFound[Found Targets]
+  DFound --> DImpact[Push or Damage]
+  DAct --> DCue[Local Cue]
+  DImpact --> DEnd[End]
+  </div>
+
+  <h2 id="char-rel">Abilities and Character module relationships</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  Char[CCharacter]
+  Defs[PA_CharacterDefination]
+  ASC[AbilitySystem on Character]
+  Inputs[Input Mapping]
+  AbShoot[GA_Shoot]
+  AbBlink[GA_Blink]
+  AbDash[GA_Dash]
+  AbCombo[GA_Combo]
+  AbBlackhole[GA_Blackhole]
+  AbLazer[GA_Lazer]
+  AbGB[GA_GroundBlast]
+  AbTornado[GA_Tornado]
+  AbFreeze[GA_Freeze]
+  AbDead[GAP_Dead]
+  AbLaunched[GAP_Launched]
+  AbUpper[UpperCut]
+
+  Char --> ASC
+  Char --> Inputs
+  Defs --> Char
+  Inputs --> ASC
+  ASC --> AbShoot
+  ASC --> AbBlink
+  ASC --> AbDash
+  ASC --> AbCombo
+  ASC --> AbBlackhole
+  ASC --> AbLazer
+  ASC --> AbGB
+  ASC --> AbTornado
+  ASC --> AbFreeze
+  ASC --> AbDead
+  ASC --> AbLaunched
+  ASC --> AbUpper
+  </div>
+
+  <h2 id="player-rel">Abilities and Player module relationships</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  PCon[CPlayerController]
+  PChar[CPlayerCharacter]
+  PState[CPlayerState]
+  PInfo[PlayerInfoTypes]
+  MenuPC[MenuPlayerController]
+  MainMenuPC[MainMenuPlayerController]
+  LobbyPC[LobbyPlayerController]
+
+  ASC2[AbilitySystem on Character]
+  InputMap[Input Mapping]
+
+  GA1[GA_Shoot]
+  GA2[GA_Blink]
+  GA3[GA_Dash]
+  GA4[GA_Combo]
+  GA5[GA_Blackhole]
+  GA6[GA_Lazer]
+  GA7[GA_GroundBlast]
+  GA8[GA_Tornado]
+  GA9[GA_Freeze]
+  GP1[GAP_Dead]
+  GP2[GAP_Launched]
+  GOther[UpperCut]
+
+  PCon --> InputMap
+  InputMap --> PChar
+  PChar --> ASC2
+  PState --> PCon
+  PInfo --> PCon
+
+  %% Non-gameplay controllers typically do not trigger abilities directly
+  MenuPC --> PInfo
+  MainMenuPC --> PInfo
+  LobbyPC --> PInfo
+
+  ASC2 --> GA1
+  ASC2 --> GA2
+  ASC2 --> GA3
+  ASC2 --> GA4
+  ASC2 --> GA5
+  ASC2 --> GA6
+  ASC2 --> GA7
+  ASC2 --> GA8
+  ASC2 --> GA9
+  ASC2 --> GP1
+  ASC2 --> GP2
+  ASC2 --> GOther
+  </div>
+
+  <h2 id="widgets-rel">Abilities and Widgets module relationships</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  GW[GameplayWidget]
+  GM[GameplayMenu]
+  ALV[AbilityListView]
+  AG[AbilityGauge]
+  ATT[AbilityToolTip]
+  XHair[CrosshairWidget]
+  MS[MatchStatWidget]
+  OH[OverHeadStatsGauge]
+  SG[StatsGauge]
+  VG[ValueGauge]
+  LG[LevelGauge]
+  InvW[InventoryWidget]
+  ShopW[ShopWidget]
+
+  ASC3[AbilitySystem on Character]
+  Ab1[GA_Shoot]
+  Ab2[GA_Blink]
+  Ab3[GA_Dash]
+  Ab4[GA_Combo]
+  Ab5[GA_Blackhole]
+  Ab6[GA_Lazer]
+  Ab7[GA_GroundBlast]
+  Ab8[GA_Tornado]
+  Ab9[GA_Freeze]
+  AbP1[GAP_Dead]
+  AbP2[GAP_Launched]
+  AbO[UpperCut]
+
+  GW --> ASC3
+  GM --> GW
+  ALV --> ASC3
+  AG --> ASC3
+  ATT --> ALV
+  XHair --> Ab1
+  XHair --> Ab6
+  MS --> ASC3
+  OH --> ASC3
+  SG --> ASC3
+  VG --> ASC3
+  LG --> ASC3
+  InvW --> GW
+  ShopW --> InvW
+
+  ASC3 --> Ab1
+  ASC3 --> Ab2
+  ASC3 --> Ab3
+  ASC3 --> Ab4
+  ASC3 --> Ab5
+  ASC3 --> Ab6
+  ASC3 --> Ab7
+  ASC3 --> Ab8
+  ASC3 --> Ab9
+  ASC3 --> AbP1
+  ASC3 --> AbP2
+  ASC3 --> AbO
+  </div>
+
+  <h2 id="ai-rel">Abilities and AI module relationships</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  AICon[CAIController]
+  BTTask[BTTask_SendInputToAbilitySystem]
+  Minion[Minion]
+  Barrack[MinionBarrack]
+  ASC4[AbilitySystem on AI]
+
+  GA1[GA_Shoot]
+  GA2[GA_Blink]
+  GA3[GA_Dash]
+  GA4[GA_Combo]
+  GA5[GA_Blackhole]
+  GA6[GA_Lazer]
+  GA7[GA_GroundBlast]
+  GA8[GA_Tornado]
+  GA9[GA_Freeze]
+  GP1[GAP_Dead]
+  GP2[GAP_Launched]
+  GOther[UpperCut]
+
+  Barrack --> Minion
+  AICon --> BTTask
+  BTTask --> ASC4
+  Minion --> ASC4
+
+  ASC4 --> GA1
+  ASC4 --> GA2
+  ASC4 --> GA3
+  ASC4 --> GA4
+  ASC4 --> GA5
+  ASC4 --> GA6
+  ASC4 --> GA7
+  ASC4 --> GA8
+  ASC4 --> GA9
+  ASC4 --> GP1
+  ASC4 --> GP2
+  ASC4 --> GOther
+  </div>
+
+  <h2 id="anim-rel">Abilities and Animations module relationships</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  AnimInst[CAnimInstance]
+  ANEvent[AN_SendGameplayEvent]
+  ANGroup[AN_SendTargetGroup]
+  ASC5[AbilitySystem on Character]
+
+  GA1[GA_Shoot]
+  GA2[GA_Blink]
+  GA3[GA_Dash]
+  GA4[GA_Combo]
+  GA5[GA_Blackhole]
+  GA6[GA_Lazer]
+  GA7[GA_GroundBlast]
+  GA8[GA_Tornado]
+  GA9[GA_Freeze]
+  GP1[GAP_Dead]
+  GP2[GAP_Launched]
+  GOther[UpperCut]
+
+  AnimInst --> ASC5
+  ANEvent --> ASC5
+  ANGroup --> ASC5
+
+  %% Anim notifications trigger ability events and targeting
+  ASC5 --> GA1
+  ASC5 --> GA2
+  ASC5 --> GA3
+  ASC5 --> GA4
+  ASC5 --> GA5
+  ASC5 --> GA6
+  ASC5 --> GA7
+  ASC5 --> GA8
+  ASC5 --> GA9
+  ASC5 --> GP1
+  ASC5 --> GP2
+  ASC5 --> GOther
+  </div>
+
+  <h2 id="framework-rel">Abilities and Framework module relationships</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  GM[CGameMode]
+  LGM[LobbyGameMode]
+  MGM[MainMenuGameMode]
+  GS[CGameState]
+  GI[CGameInstance]
+  AM[CAssetManager]
+  Core[StormCore]
+  ASC6[AbilitySystem on Character]
+
+  GA1[GA_Shoot]
+  GA2[GA_Blink]
+  GA3[GA_Dash]
+  GA4[GA_Combo]
+  GA5[GA_Blackhole]
+  GA6[GA_Lazer]
+  GA7[GA_GroundBlast]
+  GA8[GA_Tornado]
+  GA9[GA_Freeze]
+  GP1[GAP_Dead]
+  GP2[GAP_Launched]
+  GOther[UpperCut]
+
+  Core --> GM
+  Core --> GI
+  GM --> GS
+  GM --> GI
+  LGM --> GI
+  MGM --> GI
+  GI --> AM
+  AM --> GA1
+  AM --> GA2
+  AM --> GA3
+  AM --> GA4
+  AM --> GA5
+  AM --> GA6
+  AM --> GA7
+  AM --> GA8
+  AM --> GA9
+  AM --> GP1
+  AM --> GP2
+  AM --> GOther
+  GM --> ASC6
+  GS --> ASC6
+  ASC6 --> GA1
+  ASC6 --> GA2
+  ASC6 --> GA3
+  ASC6 --> GA4
+  ASC6 --> GA5
+  ASC6 --> GA6
+  ASC6 --> GA7
+  ASC6 --> GA8
+  ASC6 --> GA9
+  ASC6 --> GP1
+  ASC6 --> GP2
+  ASC6 --> GOther
+  </div>
+</body>
+</html>

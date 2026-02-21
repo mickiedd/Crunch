@@ -101,7 +101,8 @@ DerivedData
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
-*.code-workspace
+# Keep workspace file
+# *.code-workspace
 
 # Windows
 Thumbs.db
@@ -130,6 +131,10 @@ Content/Megascans/
 # Keep important config files
 !Config/
 !Content/**/*.ini
+
+# Keep AI content (important for project functionality)
+!Content/AI/
+!Content/AI/**
 
 # Keep Behaviac plugin source
 !Plugins/BehaviacPlugin/Source/

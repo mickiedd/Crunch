@@ -2,6 +2,7 @@
 
 #include "AI/BehaviacTestMinion.h"
 #include "AIController.h"
+#include "BrainComponent.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -41,7 +42,21 @@ ABehaviacTestMinion::ABehaviacTestMinion()
 
 void ABehaviacTestMinion::BeginPlay()
 {
+
 	Super::BeginPlay();
+
+	if (bUseBehaviacAI)
+	{
+		// Disable native UE5 BT system if running
+		if (AAIController* AIC = GetController<AAIController>())
+		{
+			if (AIC->BrainComponent)
+			{
+				AIC->BrainComponent->StopLogic("Behaviac AI enabled");
+				UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: stopped native UE5 BT system"), *GetName());
+			}
+		}
+	}
 
 	if (!bUseBehaviacAI || !BehaviacAgent)
 	{

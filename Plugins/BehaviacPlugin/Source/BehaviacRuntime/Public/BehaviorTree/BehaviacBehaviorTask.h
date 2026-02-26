@@ -161,12 +161,18 @@ class BEHAVIACRUNTIME_API UBehaviacBehaviorTreeTask : public UBehaviacSingleChil
 	GENERATED_BODY()
 
 public:
+	/** Override Init to create task from root node itself */
+	virtual void Init(UBehaviacBehaviorNode* InNode) override;
+	
 	/** Tick the entire behavior tree */
 	EBehaviacStatus Tick(UBehaviacAgentComponent* Agent);
 
 	/** Get the tree-level status */
 	UFUNCTION(BlueprintCallable, Category = "Behaviac|BehaviorTree")
 	EBehaviacStatus GetTreeStatus() const { return Status; }
+	
+	/** Check if child task was created */
+	bool HasChildTask() const { return ChildTask != nullptr; }
 
 protected:
 	virtual bool OnEnter(UBehaviacAgentComponent* Agent) override;

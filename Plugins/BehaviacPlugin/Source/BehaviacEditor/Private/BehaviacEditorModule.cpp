@@ -3,6 +3,7 @@
 
 #include "BehaviacEditorModule.h"
 #include "BehaviacBehaviorTreeFactory.h"
+#include "BehaviacEditorCommands.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 

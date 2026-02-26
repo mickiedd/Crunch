@@ -302,6 +302,34 @@ EBehaviacStatus UBehaviacSingleChildTask::UpdateCurrent(UBehaviacAgentComponent*
 // UBehaviacBehaviorTreeTask
 // ===================================================================
 
+void UBehaviacBehaviorTreeTask::Init(UBehaviacBehaviorNode* InNode)
+{
+	// Don't call Super::Init() because SingleChildTask expects InNode to HAVE children
+	// Instead, create a task directly FROM the root node
+	
+	Node = InNode;  // Set our node reference
+	Status = EBehaviacStatus::Invalid;
+	
+	if (InNode)
+	{
+		// Create task from the root node itself (not from its child!)
+		ChildTask = InNode->CreateTask(this);
+		if (ChildTask)
+		{
+			ChildTask->Init(InNode);
+			ChildTask->SetParentTask(this);
+			
+			UE_LOG(LogTemp, Warning, TEXT("[Behaviac] ✅ BehaviorTreeTask created ChildTask from node '%s'"), 
+				*InNode->GetName());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("[Behaviac] ❌ Node->CreateTask() returned NULL for node '%s'"), 
+				*InNode->GetName());
+		}
+	}
+}
+
 EBehaviacStatus UBehaviacBehaviorTreeTask::Tick(UBehaviacAgentComponent* Agent)
 {
 	return Execute(Agent, EBehaviacStatus::Running);

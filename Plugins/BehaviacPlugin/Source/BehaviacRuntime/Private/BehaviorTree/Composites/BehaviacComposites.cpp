@@ -2,6 +2,7 @@
 // Licensed under the BSD 3-Clause License.
 
 #include "BehaviorTree/Composites/BehaviacComposites.h"
+#include "BehaviorTree/Decorators/BehaviacDecorators.h"
 #include "BehaviacAgent.h"
 
 // ===================================================================
@@ -183,10 +184,13 @@ void UBehaviacParallel::LoadFromProperties(int32 Version, const FString& InAgent
 		}
 		else if (Prop.Name == TEXT("ChildFinishPolicy"))
 		{
-			if (Prop.Value == TEXT("CHILDFINISH_LOOP"))
+			if (Prop.Value == TEXT("CHILDFINISH_LOOP") || Prop.Value == TEXT("Loop"))
 				ChildFinishPolicy = EBehaviacChildFinishPolicy::Loop;
 			else
+			{
 				ChildFinishPolicy = EBehaviacChildFinishPolicy::Once;
+				UE_LOG(LogTemp, Warning, TEXT("[Parallel] ChildFinishPolicy='%s' → Once (not Loop). UpdateAIState will only run once!"), *Prop.Value);
+			}
 		}
 	}
 }
@@ -234,9 +238,17 @@ EBehaviacStatus UBehaviacParallelTask::OnUpdate(UBehaviacAgentComponent* Agent, 
 	for (int32 i = 0; i < ChildTasks.Num(); i++)
 	{
 		// Skip completed children if policy is Once
-		if (ParallelNode->ChildFinishPolicy == EBehaviacChildFinishPolicy::Once &&
+		bool bSkipping = (ParallelNode->ChildFinishPolicy == EBehaviacChildFinishPolicy::Once &&
 			ChildStatuses[i] != EBehaviacStatus::Invalid &&
-			ChildStatuses[i] != EBehaviacStatus::Running)
+			ChildStatuses[i] != EBehaviacStatus::Running);
+
+		UE_LOG(LogTemp, Warning, TEXT("[Parallel] Child[%d] FinishPolicy=%s CachedStatus=%d → %s"),
+			i,
+			ParallelNode->ChildFinishPolicy == EBehaviacChildFinishPolicy::Loop ? TEXT("Loop") : TEXT("Once"),
+			(int32)ChildStatuses[i],
+			bSkipping ? TEXT("SKIP ⚠️") : TEXT("EXECUTE"));
+
+		if (bSkipping)
 		{
 			if (ChildStatuses[i] == EBehaviacStatus::Success) SuccessCount++;
 			else if (ChildStatuses[i] == EBehaviacStatus::Failure) FailCount++;
@@ -245,6 +257,8 @@ EBehaviacStatus UBehaviacParallelTask::OnUpdate(UBehaviacAgentComponent* Agent, 
 
 		EBehaviacStatus Result = ChildTasks[i]->Execute(Agent, EBehaviacStatus::Invalid);
 		ChildStatuses[i] = Result;
+
+		UE_LOG(LogTemp, Warning, TEXT("[Parallel] Child[%d] executed → %d"), i, (int32)Result);
 
 		switch (Result)
 		{
@@ -338,6 +352,8 @@ bool UBehaviacSelectorLoopTask::OnEnter(UBehaviacAgentComponent* Agent)
 
 EBehaviacStatus UBehaviacSelectorLoopTask::OnUpdate(UBehaviacAgentComponent* Agent, EBehaviacStatus ChildStatus)
 {
+	UE_LOG(LogTemp, Warning, TEXT("[SelectorLoop] OnUpdate — ActiveChild=%d, ChildCount=%d"), ActiveChildIndex, ChildTasks.Num());
+
 	// Re-evaluate from the beginning to check if higher priority child is valid
 	for (int32 i = 0; i < ChildTasks.Num(); i++)
 	{
@@ -349,9 +365,11 @@ EBehaviacStatus UBehaviacSelectorLoopTask::OnUpdate(UBehaviacAgentComponent* Age
 			{
 				// Reset and try this child
 				EBehaviacStatus Result = ChildTasks[i]->Execute(Agent, EBehaviacStatus::Invalid);
+				UE_LOG(LogTemp, Warning, TEXT("[SelectorLoop] High-priority check child[%d] → %d"), i, (int32)Result);
 				if (Result != EBehaviacStatus::Failure)
 				{
 					// Interrupt current child
+					UE_LOG(LogTemp, Warning, TEXT("[SelectorLoop] ⚡ Interrupting child[%d] → switching to child[%d]"), ActiveChildIndex, i);
 					if (ChildTasks.IsValidIndex(ActiveChildIndex))
 					{
 						ChildTasks[ActiveChildIndex]->Reset(Agent);
@@ -364,6 +382,7 @@ EBehaviacStatus UBehaviacSelectorLoopTask::OnUpdate(UBehaviacAgentComponent* Age
 		else if (i == ActiveChildIndex)
 		{
 			EBehaviacStatus Result = ChildTasks[i]->Execute(Agent, ChildStatus);
+			UE_LOG(LogTemp, Warning, TEXT("[SelectorLoop] Active child[%d] → %d"), i, (int32)Result);
 
 			if (Result == EBehaviacStatus::Running)
 			{
@@ -379,6 +398,7 @@ EBehaviacStatus UBehaviacSelectorLoopTask::OnUpdate(UBehaviacAgentComponent* Age
 		}
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("[SelectorLoop] All children exhausted → Failure"));
 	return EBehaviacStatus::Failure;
 }
 
@@ -393,7 +413,50 @@ UBehaviacBehaviorTask* UBehaviacSelectorProbability::CreateTask(UObject* Outer) 
 
 bool UBehaviacSelectorProbabilityTask::OnEnter(UBehaviacAgentComponent* Agent)
 {
-	return ChildTasks.Num() > 0;
+	if (ChildTasks.Num() == 0) return false;
+
+	// Collect weights from DecoratorWeight children; default weight = 1.0
+	TArray<float> Weights;
+	Weights.Reserve(ChildTasks.Num());
+	float TotalWeight = 0.0f;
+
+	for (int32 i = 0; i < ChildTasks.Num(); i++)
+	{
+		float W = 1.0f;
+		if (Node && Node->GetChild(i))
+		{
+			const UBehaviacDecoratorWeight* WeightNode = Cast<UBehaviacDecoratorWeight>(Node->GetChild(i));
+			if (WeightNode)
+			{
+				W = FMath::Max(0.0f, WeightNode->Weight);
+			}
+		}
+		Weights.Add(W);
+		TotalWeight += W;
+	}
+
+	// Pick weighted random child
+	ActiveChildIndex = 0;
+	if (TotalWeight > 0.0f)
+	{
+		float Pick = FMath::FRandRange(0.0f, TotalWeight);
+		float Cumulative = 0.0f;
+		for (int32 i = 0; i < Weights.Num(); i++)
+		{
+			Cumulative += Weights[i];
+			if (Pick <= Cumulative)
+			{
+				ActiveChildIndex = i;
+				break;
+			}
+		}
+	}
+	else
+	{
+		ActiveChildIndex = FMath::RandRange(0, ChildTasks.Num() - 1);
+	}
+
+	return true;
 }
 
 EBehaviacStatus UBehaviacSelectorProbabilityTask::OnUpdate(UBehaviacAgentComponent* Agent, EBehaviacStatus ChildStatus)
@@ -403,14 +466,13 @@ EBehaviacStatus UBehaviacSelectorProbabilityTask::OnUpdate(UBehaviacAgentCompone
 		return EBehaviacStatus::Failure;
 	}
 
-	// Pick weighted random child (weights from decorator weight nodes)
-	// For simplicity, use uniform random if no weights
-	if (ActiveChildIndex < 0 || ActiveChildIndex >= ChildTasks.Num())
+	// ActiveChildIndex was chosen by weighted random in OnEnter; just execute it
+	if (ChildTasks.IsValidIndex(ActiveChildIndex))
 	{
-		ActiveChildIndex = FMath::RandRange(0, ChildTasks.Num() - 1);
+		return ChildTasks[ActiveChildIndex]->Execute(Agent, ChildStatus);
 	}
 
-	return ChildTasks[ActiveChildIndex]->Execute(Agent, ChildStatus);
+	return EBehaviacStatus::Failure;
 }
 
 // ===================================================================
@@ -610,6 +672,9 @@ EBehaviacStatus UBehaviacWithPreconditionTask::OnUpdate(UBehaviacAgentComponent*
 
 	// First child: precondition
 	EBehaviacStatus PrecondResult = ChildTasks[0]->Execute(Agent, EBehaviacStatus::Invalid);
+
+	UE_LOG(LogTemp, Warning, TEXT("[WithPrecondition] Precondition → %s"),
+		PrecondResult == EBehaviacStatus::Success ? TEXT("PASS") : TEXT("FAIL"));
 
 	if (PrecondResult != EBehaviacStatus::Success)
 	{

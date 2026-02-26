@@ -18,11 +18,16 @@ void UBehaviacAction::LoadFromProperties(int32 Version, const FString& InAgentTy
 	Super::LoadFromProperties(Version, InAgentType, Properties);
 	ResultOption = EBehaviacStatus::Success;
 
+	UE_LOG(LogTemp, Warning, TEXT("[Behaviac] 📦 Action::LoadFromProperties: Got %d properties"), Properties.Num());
+
 	for (const FBehaviacProperty& Prop : Properties)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac]    Property: '%s' = '%s'"), *Prop.Name, *Prop.Value);
+
 		if (Prop.Name == TEXT("Method"))
 		{
 			MethodName = Prop.Value;
+			UE_LOG(LogTemp, Warning, TEXT("[Behaviac]    ✅ Set MethodName to '%s'"), *MethodName);
 		}
 		else if (Prop.Name == TEXT("ResultOption"))
 		{
@@ -31,6 +36,8 @@ void UBehaviacAction::LoadFromProperties(int32 Version, const FString& InAgentTy
 			else if (Prop.Value == TEXT("BT_RUNNING")) ResultOption = EBehaviacStatus::Running;
 		}
 	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Behaviac] 📦 After parsing: MethodName='%s'"), *MethodName);
 }
 
 EBehaviacStatus UBehaviacActionTask::OnUpdate(UBehaviacAgentComponent* Agent, EBehaviacStatus ChildStatus)
@@ -38,11 +45,18 @@ EBehaviacStatus UBehaviacActionTask::OnUpdate(UBehaviacAgentComponent* Agent, EB
 	const UBehaviacAction* ActionNode = Cast<UBehaviacAction>(Node);
 	if (!ActionNode || !Agent)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] ActionTask::OnUpdate: ActionNode=%d, Agent=%d"), 
+			ActionNode != nullptr, Agent != nullptr);
 		return EBehaviacStatus::Failure;
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("[Behaviac] 🎯 ActionTask::OnUpdate: Calling method '%s'"), *ActionNode->MethodName);
+
 	// Call the method on the agent
 	EBehaviacStatus Result = Agent->ExecuteMethod(ActionNode->MethodName);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Behaviac] 🎯 ActionTask::OnUpdate: Method '%s' returned %d (Invalid=0, Success=1, Failure=2, Running=3)"), 
+		*ActionNode->MethodName, (int32)Result);
 
 	if (Result != EBehaviacStatus::Invalid)
 	{

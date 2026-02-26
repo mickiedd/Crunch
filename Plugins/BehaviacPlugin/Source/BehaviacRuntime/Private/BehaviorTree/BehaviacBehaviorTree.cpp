@@ -185,11 +185,30 @@ static UBehaviacBehaviorNode* ParseNodeFromXML(const FXmlNode* XmlNode, UObject*
 
 bool UBehaviacBehaviorTree::LoadFromXML(const FString& XMLContent)
 {
-	FXmlFile XmlFile(XMLContent, EConstructMethod::ConstructFromBuffer);
+	// FXmlFile's ConstructFromBuffer splits on newlines before stripping <?xml?>.
+	// If the entire XML is on one line, the prolog removal blanks the whole string.
+	// Fix: strip the XML declaration ourselves and add a newline after every '>'.
+	FString Sanitized = XMLContent;
+	// Remove the <?xml ... ?> prolog (handles both single-line and multi-line)
+	{
+		int32 PrologStart = Sanitized.Find(TEXT("<?xml"), ESearchCase::IgnoreCase);
+		if (PrologStart != INDEX_NONE)
+		{
+			int32 PrologEnd = Sanitized.Find(TEXT("?>"), ESearchCase::CaseSensitive, ESearchDir::FromStart, PrologStart);
+			if (PrologEnd != INDEX_NONE)
+			{
+				Sanitized.RemoveAt(PrologStart, (PrologEnd + 2) - PrologStart);
+			}
+		}
+	}
+	// Ensure each tag ends with a newline so FXmlFile can parse line-by-line
+	Sanitized = Sanitized.Replace(TEXT(">"), TEXT(">\n"));
+
+	FXmlFile XmlFile(Sanitized, EConstructMethod::ConstructFromBuffer);
 
 	if (!XmlFile.IsValid())
 	{
-		UE_LOG(LogTemp, Error, TEXT("[Behaviac] Failed to parse XML content"));
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] Failed to parse XML content"));
 		return false;
 	}
 
@@ -228,6 +247,20 @@ bool UBehaviacBehaviorTree::LoadFromXML(const FString& XMLContent)
 	if (FirstNode)
 	{
 		RootNode = ParseNodeFromXML(FirstNode, this);
+		
+		if (RootNode)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Behaviac] ✅ XML parsed! RootNode=%s, ChildCount=%d"), 
+				*RootNode->GetName(), RootNode->GetChildCount());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("[Behaviac] ❌ ParseNodeFromXML returned NULL!"));
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] ❌ No <node> element found in XML!"));
 	}
 
 	return RootNode != nullptr;

@@ -65,7 +65,16 @@ bool UBehaviacAgentComponent::LoadBehaviorTree(UBehaviacBehaviorTree* TreeAsset)
 
 	// Create the root task (BehaviorTreeTask wrapping the root node)
 	CurrentTreeTask = NewObject<UBehaviacBehaviorTreeTask>(this);
+	
+	UE_LOG(LogTemp, Warning, TEXT("[Behaviac] 🔨 Creating tasks: RootNode=%d, NodeType=%s, ChildCount=%d"), 
+		RootNode != nullptr, 
+		RootNode ? *RootNode->GetName() : TEXT("NULL"),
+		RootNode ? RootNode->GetChildCount() : -1);
+	
 	CurrentTreeTask->Init(RootNode);
+	
+	UE_LOG(LogTemp, Warning, TEXT("[Behaviac] 🔨 After Init: CurrentTreeTask->HasChildTask=%d"), 
+		CurrentTreeTask->HasChildTask());
 
 	UE_LOG(LogTemp, Log, TEXT("[Behaviac] Loaded behavior tree: %s"), *TreeAsset->GetName());
 	return true;
@@ -90,12 +99,11 @@ EBehaviacStatus UBehaviacAgentComponent::TickBehaviorTree()
 {
 	if (!CurrentTreeTask)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] TickBehaviorTree: CurrentTreeTask is NULL!"));
 		return EBehaviacStatus::Invalid;
 	}
 
 	EBehaviacStatus Result = CurrentTreeTask->Tick(this);
-
-	// If tree completed, it stays completed until manually reset
 	return Result;
 }
 
@@ -205,10 +213,23 @@ bool UBehaviacAgentComponent::GetBoolProperty(const FString& PropertyName) const
 
 EBehaviacStatus UBehaviacAgentComponent::ExecuteMethod(const FString& MethodName)
 {
+	UE_LOG(LogTemp, Warning, TEXT("[Behaviac] 🔍 ExecuteMethod called for: '%s'"), *MethodName);
+
 	// First check registered C++ handlers
 	if (TFunction<EBehaviacStatus()>* Handler = MethodHandlers.Find(MethodName))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] ✅ Found C++ handler for '%s', calling it..."), *MethodName);
 		return (*Handler)();
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] ❌ No C++ handler found for '%s' (have %d handlers registered)"), *MethodName, MethodHandlers.Num());
+		
+		// Debug: List all registered handlers
+		for (const auto& Pair : MethodHandlers)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Behaviac]    - Registered: '%s'"), *Pair.Key);
+		}
 	}
 
 	// Try Blueprint delegate

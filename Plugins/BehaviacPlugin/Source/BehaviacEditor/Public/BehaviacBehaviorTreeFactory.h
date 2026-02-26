@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "Factories/Factory.h"
+#include "EditorReimportHandler.h"
 #include "BehaviacBehaviorTreeFactory.generated.h"
 
 /**
@@ -28,9 +29,10 @@ public:
 
 /**
  * Factory for importing XML behavior tree files into UBehaviacBehaviorTree assets.
+ * Supports both initial import and reimport from XML.
  */
 UCLASS()
-class BEHAVIACEDITOR_API UBehaviacBehaviorTreeImportFactory : public UFactory
+class BEHAVIACEDITOR_API UBehaviacBehaviorTreeImportFactory : public UFactory, public FReimportHandler
 {
 	GENERATED_BODY()
 
@@ -40,4 +42,13 @@ public:
 	// UFactory interface
 	virtual UObject* FactoryCreateFile(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, const FString& Filename, const TCHAR* Parms, FFeedbackContext* Warn, bool& bOutOperationCanceled) override;
 	virtual bool FactoryCanImport(const FString& Filename) override;
+
+	// FReimportHandler interface
+	virtual bool CanReimport(UObject* Obj, TArray<FString>& OutFilenames) override;
+	virtual void SetReimportPaths(UObject* Obj, const TArray<FString>& NewReimportPaths) override;
+	virtual EReimportResult::Type Reimport(UObject* Obj) override;
+	virtual int32 GetPriority() const override { return ImportPriority; }
+
+private:
+	UObject* ImportBehaviorTree(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, const FString& Filename, FFeedbackContext* Warn);
 };

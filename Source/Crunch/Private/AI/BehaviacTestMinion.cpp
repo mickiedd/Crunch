@@ -8,6 +8,9 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "GAS/CGameplayAbilityTypes.h"
+#include "Kismet/GameplayStatics.h"
+#include "BehaviacAgent.h"
+#include "BehaviorTree/BehaviacBehaviorTree.h"
 
 ABehaviacTestMinion::ABehaviacTestMinion()
 {
@@ -15,39 +18,102 @@ ABehaviacTestMinion::ABehaviacTestMinion()
 
 	// Create Behaviac agent component
 	BehaviacAgent = CreateDefaultSubobject<UBehaviacAgentComponent>(TEXT("BehaviacAgent"));
+	// Manually tick from our own Tick() for ordering control
+	BehaviacAgent->bAutoTick = false;
+
+	// Defaults
+	DetectionRadius     = 1000.0f;
+	WalkSpeed           = 200.0f;
+	RunSpeed            = 400.0f;
+	GuardRadius         = 1500.0f;
+	AttackRange         = 200.0f;
+	CombatRange         = 250.0f;
+	MoveAcceptanceRadius = 100.0f;
+
+	bHasLastKnownPos    = false;
+	LookAroundDir       = 1.0f;
+	CurrentPatrolIndex  = 0;
+	TickCounter         = 0;
+	DebugTimer          = 0.0f;
+	PropertyUpdateInterval   = 0.2f;
+	LastPropertyUpdateTime   = 0.0f;
 }
 
 void ABehaviacTestMinion::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (bUseBehaviacAI && BehaviacAgent)
+	if (!bUseBehaviacAI || !BehaviacAgent)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] Initializing Behaviac AI for %s"), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: using default UE5 BT"), *GetName());
+		return;
+	}
 
-		// Initialize properties
-		BehaviacAgent->SetIntProperty(TEXT("Health"), 100);
-		BehaviacAgent->SetBoolProperty(TEXT("HasTarget"), false);
-		BehaviacAgent->SetFloatProperty(TEXT("DistanceToTarget"), 999999.0f);
-		BehaviacAgent->SetBoolProperty(TEXT("IsMoving"), false);
+	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: initializing Behaviac AI"), *GetName());
 
-		// Bind method handler
-		BehaviacAgent->OnMethodCalled.AddDynamic(this, &ABehaviacTestMinion::HandleBehaviacMethod);
+	// Guard post at spawn
+	GuardCenter = GetActorLocation();
 
-		// Load behavior tree
-		if (!BehaviorTreeAssetPath.IsEmpty())
-		{
-			BehaviacAgent->LoadBehaviorTreeByPath(BehaviorTreeAssetPath);
-			UE_LOG(LogTemp, Log, TEXT("[BehaviacTestMinion] Loaded behavior tree: %s"), *BehaviorTreeAssetPath);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("[BehaviacTestMinion] BehaviorTreeAssetPath is empty!"));
-		}
+	// Build patrol ring around spawn
+	FVector Origin = GetActorLocation();
+	PatrolPoints.Add(Origin + FVector( 500,    0, 0));
+	PatrolPoints.Add(Origin + FVector( 500,  500, 0));
+	PatrolPoints.Add(Origin + FVector(   0,  500, 0));
+	PatrolPoints.Add(Origin);
+
+	// ── Register all method handlers (lambda style, matches BehaviacAINPC) ──
+
+	BehaviacAgent->RegisterMethodHandler(TEXT("FindPlayer"),        [this]() { return FindPlayer(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("HasTarget"),         [this]() { return FindPlayer(); });   // alias
+	BehaviacAgent->RegisterMethodHandler(TEXT("InAttackRange"),     [this]() -> EBehaviacStatus {
+		if (!CurrentTarget) return EBehaviacStatus::Failure;
+		float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+		return (Dist <= AttackRange) ? EBehaviacStatus::Success : EBehaviacStatus::Failure;
+	});
+	BehaviacAgent->RegisterMethodHandler(TEXT("MoveToTarget"),      [this]() { return MoveToTarget(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("Patrol"),            [this]() { return Patrol(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("PatrolToGoal"),      [this]() { return PatrolToGoal(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("UpdateAIState"),     [this]() { return UpdateAIState(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("ChasePlayer"),       [this]() { return ChasePlayer(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("AttackTarget"),      [this]() { return AttackTarget(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("StopMovement"),      [this]() { return StopMovement(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("FaceTarget"),        [this]() { return FaceTarget(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("SetWalkSpeed"),      [this]() { return SetWalkSpeed(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("SetRunSpeed"),       [this]() { return SetRunSpeed(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("MoveToLastKnownPos"),[this]() { return MoveToLastKnownPos(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("LookAround"),        [this]() { return LookAround(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("ClearLastKnownPos"), [this]() { return ClearLastKnownPos(); });
+	BehaviacAgent->RegisterMethodHandler(TEXT("ReturnToPost"),      [this]() { return ReturnToPost(); });
+
+	// ── Seed initial blackboard properties ─────────────────────────────
+	BehaviacAgent->SetIntProperty  (TEXT("Health"),           100);
+	BehaviacAgent->SetBoolProperty (TEXT("HasTarget"),        false);
+	BehaviacAgent->SetFloatProperty(TEXT("DistanceToTarget"), 999999.0f);
+	BehaviacAgent->SetBoolProperty (TEXT("IsMoving"),         false);
+	BehaviacAgent->SetFloatProperty(TEXT("DetectionRadius"),  DetectionRadius);
+	BehaviacAgent->SetFloatProperty(TEXT("WalkSpeed"),        WalkSpeed);
+	BehaviacAgent->SetFloatProperty(TEXT("RunSpeed"),         RunSpeed);
+	BehaviacAgent->SetPropertyValue(TEXT("AIState"),          TEXT("Patrol"));
+
+	// ── Load behavior tree ─────────────────────────────────────────────
+	bool bLoaded = false;
+	if (BehaviorTree)
+	{
+		bLoaded = BehaviacAgent->LoadBehaviorTree(BehaviorTree);
+	}
+	else if (!BehaviorTreeAssetPath.IsEmpty())
+	{
+		BehaviacAgent->LoadBehaviorTreeByPath(BehaviorTreeAssetPath);
+		bLoaded = true; // path-based load doesn't return bool
+	}
+
+	if (bLoaded)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: behavior tree loaded OK"), *GetName());
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] Using default UE5 BT system for %s"), *GetName());
+		UE_LOG(LogTemp, Error, TEXT("[BehaviacTestMinion] %s: failed to load behavior tree!"), *GetName());
 	}
 }
 
@@ -55,205 +121,406 @@ void ABehaviacTestMinion::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (bUseBehaviacAI && BehaviacAgent)
+	if (!bUseBehaviacAI || !BehaviacAgent)
 	{
-		// Periodically update Behaviac properties from game state
-		LastPropertyUpdateTime += DeltaTime;
-		if (LastPropertyUpdateTime >= PropertyUpdateInterval)
-		{
-			UpdateBehaviacProperties();
-			LastPropertyUpdateTime = 0.0f;
-		}
+		return;
+	}
+
+	// Periodic blackboard sync
+	LastPropertyUpdateTime += DeltaTime;
+	if (LastPropertyUpdateTime >= PropertyUpdateInterval)
+	{
+		UpdateBehaviacProperties();
+		LastPropertyUpdateTime = 0.0f;
+	}
+
+	// Tick behavior tree
+	TickCounter++;
+	EBehaviacStatus Status = BehaviacAgent->TickBehaviorTree();
+
+	// Debug every ~2s at 60fps
+	if (TickCounter % 120 == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s tick #%d → %s | AIState=%s"),
+			*GetName(), TickCounter,
+			Status == EBehaviacStatus::Running ? TEXT("Running") :
+			Status == EBehaviacStatus::Success ? TEXT("Success") : TEXT("Failure"),
+			*BehaviacAgent->GetPropertyValue(TEXT("AIState")));
+	}
+
+	// 5-second movement debug
+	DebugTimer += DeltaTime;
+	if (DebugTimer >= 5.0f)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[BehaviacTestMinion] %s Pos=%s Vel=%.0f"),
+			*GetName(), *GetActorLocation().ToString(), GetVelocity().Size());
+		DebugTimer = 0.0f;
 	}
 }
 
-void ABehaviacTestMinion::HandleBehaviacMethod(const FString& MethodName, EBehaviacStatus& OutResult)
-{
-	UE_LOG(LogTemp, Log, TEXT("[BehaviacTestMinion] Method called: %s"), *MethodName);
+// ============================================================
+// Target detection
+// ============================================================
 
-	// Condition checks
-	if (MethodName == TEXT("HasTarget"))
-	{
-		OutResult = CheckHasTarget() ? EBehaviacStatus::Success : EBehaviacStatus::Failure;
-	}
-	else if (MethodName == TEXT("InAttackRange"))
-	{
-		OutResult = CheckInAttackRange() ? EBehaviacStatus::Success : EBehaviacStatus::Failure;
-	}
-	// Actions
-	else if (MethodName == TEXT("MoveToTarget"))
-	{
-		ExecuteMoveToTarget(OutResult);
-	}
-	else if (MethodName == TEXT("AttackTarget"))
-	{
-		ExecuteAttackTarget(OutResult);
-	}
-	else if (MethodName == TEXT("PatrolToGoal"))
-	{
-		ExecutePatrolToGoal(OutResult);
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] Unknown method: %s"), *MethodName);
-		OutResult = EBehaviacStatus::Failure;
-	}
-}
-
-bool ABehaviacTestMinion::CheckHasTarget()
+bool ABehaviacTestMinion::FindTargetViaPerception()
 {
-	// Get target from AI controller's perception
-	if (AAIController* AIController = GetController<AAIController>())
+	if (AAIController* AIC = GetController<AAIController>())
 	{
-		if (UAIPerceptionComponent* PerceptionComp = AIController->GetAIPerceptionComponent())
+		if (UAIPerceptionComponent* Perc = AIC->GetAIPerceptionComponent())
 		{
-			TArray<AActor*> PerceivedActors;
-			PerceptionComp->GetCurrentlyPerceivedActors(nullptr, PerceivedActors);
-
-			// Find first hostile actor
-			for (AActor* Actor : PerceivedActors)
+			TArray<AActor*> Perceived;
+			Perc->GetCurrentlyPerceivedActors(nullptr, Perceived);
+			for (AActor* Actor : Perceived)
 			{
 				if (Actor && Actor != this)
 				{
 					CurrentTarget = Actor;
-					UE_LOG(LogTemp, Log, TEXT("[BehaviacTestMinion] Target acquired: %s"), *Actor->GetName());
 					return true;
 				}
 			}
 		}
 	}
-
+	// Fall back to nearest player pawn within detection radius
+	if (APawn* Player = UGameplayStatics::GetPlayerPawn(GetWorld(), 0))
+	{
+		if (FVector::Dist(GetActorLocation(), Player->GetActorLocation()) <= DetectionRadius)
+		{
+			CurrentTarget = Player;
+			return true;
+		}
+	}
 	CurrentTarget = nullptr;
 	return false;
 }
 
-bool ABehaviacTestMinion::CheckInAttackRange()
+// ============================================================
+// Behaviac Actions
+// ============================================================
+
+EBehaviacStatus ABehaviacTestMinion::FindPlayer()
 {
-	if (!CurrentTarget)
+	bool bFound = FindTargetViaPerception();
+	if (BehaviacAgent)
 	{
-		return false;
+		BehaviacAgent->SetBoolProperty(TEXT("HasTarget"), bFound);
 	}
-
-	float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-	bool bInRange = Distance <= AttackRange;
-
-	if (bInRange)
-	{
-		UE_LOG(LogTemp, Log, TEXT("[BehaviacTestMinion] Target in range! Distance: %.1f"), Distance);
-	}
-
-	return bInRange;
+	return bFound ? EBehaviacStatus::Success : EBehaviacStatus::Failure;
 }
 
-void ABehaviacTestMinion::ExecuteMoveToTarget(EBehaviacStatus& OutResult)
+EBehaviacStatus ABehaviacTestMinion::MoveToTarget()
 {
 	if (!CurrentTarget)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] MoveToTarget: No target!"));
-		OutResult = EBehaviacStatus::Failure;
-		return;
+		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] MoveToTarget: no target"));
+		return EBehaviacStatus::Failure;
 	}
 
-	if (AAIController* AIController = GetController<AAIController>())
-	{
-		EPathFollowingRequestResult::Type MoveResult = AIController->MoveToActor(
-			CurrentTarget,
-			MoveAcceptanceRadius,
-			true,  // bStopOnOverlap
-			true,  // bUsePathfinding
-			false, // bCanStrafe
-			nullptr,
-			true   // bAllowPartialPath
-		);
+	AAIController* AIC = GetController<AAIController>();
+	if (!AIC) return EBehaviacStatus::Failure;
 
-		if (MoveResult == EPathFollowingRequestResult::RequestSuccessful)
+	float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+	GetCharacterMovement()->MaxWalkSpeed = (Dist > DetectionRadius * 0.5f) ? RunSpeed : WalkSpeed;
+
+	EPathFollowingRequestResult::Type Result = AIC->MoveToActor(
+		CurrentTarget, MoveAcceptanceRadius, true, true, false, nullptr, true);
+
+	if (Result == EPathFollowingRequestResult::RequestSuccessful)
+	{
+		return EBehaviacStatus::Running;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] MoveToTarget: move request failed"));
+	return EBehaviacStatus::Failure;
+}
+
+EBehaviacStatus ABehaviacTestMinion::Patrol()
+{
+	if (PatrolPoints.Num() == 0) return EBehaviacStatus::Failure;
+
+	AAIController* AIC = GetController<AAIController>();
+	if (!AIC) return EBehaviacStatus::Failure;
+
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	FVector Target = PatrolPoints[CurrentPatrolIndex];
+
+	if (FVector::Dist(GetActorLocation(), Target) < 100.0f)
+	{
+		CurrentPatrolIndex = (CurrentPatrolIndex + 1) % PatrolPoints.Num();
+		Target = PatrolPoints[CurrentPatrolIndex];
+		AIC->MoveToLocation(Target, 50.0f);
+		return EBehaviacStatus::Running;
+	}
+
+	UPathFollowingComponent* PF = AIC->GetPathFollowingComponent();
+	if (PF && PF->GetStatus() == EPathFollowingStatus::Moving)
+	{
+		return EBehaviacStatus::Running;
+	}
+
+	EPathFollowingRequestResult::Type Result = AIC->MoveToLocation(Target, 50.0f);
+	if (Result == EPathFollowingRequestResult::Failed)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] Patrol: MoveToLocation failed (no NavMesh?)"));
+		return EBehaviacStatus::Failure;
+	}
+	return EBehaviacStatus::Running;
+}
+
+EBehaviacStatus ABehaviacTestMinion::PatrolToGoal()
+{
+	// Prefer Crunch's AMinion goal-actor system if available.
+	// Falls back to standard patrol loop when no goal is assigned.
+	// (Extend this once AMinion exposes a GoalActor/GoalLocation getter.)
+	return Patrol();
+}
+
+EBehaviacStatus ABehaviacTestMinion::UpdateAIState()
+{
+	FString NewState = TEXT("Patrol");
+	float DistFromPost = FVector::Dist(GetActorLocation(), GuardCenter);
+
+	AActor* Player = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
+	if (!Player)
+	{
+		// Also check perception
+		FindTargetViaPerception();
+		Player = CurrentTarget;
+	}
+
+	if (Player)
+	{
+		float DistToPlayer    = FVector::Dist(GetActorLocation(), Player->GetActorLocation());
+		float PlayerFromPost  = FVector::Dist(Player->GetActorLocation(), GuardCenter);
+
+		// Line-of-sight check
+		bool bCanSee = false;
+		if (DistToPlayer <= DetectionRadius)
 		{
-			UE_LOG(LogTemp, Log, TEXT("[BehaviacTestMinion] Moving to target: %s"), *CurrentTarget->GetName());
-			OutResult = EBehaviacStatus::Running;
+			FVector EyeLoc     = GetActorLocation() + FVector(0, 0, 60.f);
+			FVector PlayerEye  = Player->GetActorLocation() + FVector(0, 0, 60.f);
+			FHitResult Hit;
+			FCollisionQueryParams Params;
+			Params.AddIgnoredActor(this);
+			Params.AddIgnoredActor(Player);
+			bool bBlocked = GetWorld()->LineTraceSingleByChannel(Hit, EyeLoc, PlayerEye, ECC_Visibility, Params);
+			bCanSee = !bBlocked;
+		}
+
+		if (bCanSee && DistToPlayer <= AttackRange)
+		{
+			CurrentTarget = Player;
+			bHasLastKnownPos = true;
+			LastKnownPlayerPos = Player->GetActorLocation();
+			NewState = TEXT("Combat");
+		}
+		else if (bCanSee && PlayerFromPost <= GuardRadius)
+		{
+			CurrentTarget = Player;
+			bHasLastKnownPos = true;
+			LastKnownPlayerPos = Player->GetActorLocation();
+			NewState = TEXT("Chase");
+		}
+		else if (bCanSee && PlayerFromPost > GuardRadius)
+		{
+			CurrentTarget = nullptr;
+			bHasLastKnownPos = false;
+			LastKnownPlayerPos = FVector::ZeroVector;
+			NewState = TEXT("ReturnToPost");
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] Move request failed!"));
-			OutResult = EBehaviacStatus::Failure;
+			// Cannot see player
+			if (bHasLastKnownPos || CurrentTarget != nullptr)
+			{
+				CurrentTarget = nullptr;
+				bHasLastKnownPos = false;
+				LastKnownPlayerPos = FVector::ZeroVector;
+				NewState = TEXT("ReturnToPost");
+			}
+			else
+			{
+				NewState = (DistFromPost > GuardRadius) ? TEXT("ReturnToPost") : TEXT("Patrol");
+			}
 		}
 	}
 	else
 	{
-		OutResult = EBehaviacStatus::Failure;
+		CurrentTarget = nullptr;
+		bHasLastKnownPos = false;
+		NewState = (DistFromPost > GuardRadius) ? TEXT("ReturnToPost") : TEXT("Patrol");
 	}
+
+	if (BehaviacAgent)
+	{
+		FString OldState = BehaviacAgent->GetPropertyValue(TEXT("AIState"));
+		if (OldState != NewState)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s AIState: %s → %s"), *GetName(), *OldState, *NewState);
+			BehaviacAgent->SetPropertyValue(TEXT("AIState"), NewState);
+		}
+	}
+
+	return EBehaviacStatus::Success;
 }
 
-void ABehaviacTestMinion::ExecuteAttackTarget(EBehaviacStatus& OutResult)
+EBehaviacStatus ABehaviacTestMinion::ChasePlayer()
 {
-	if (!CurrentTarget)
+	if (BehaviacAgent && BehaviacAgent->GetPropertyValue(TEXT("AIState")) != TEXT("Chase"))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] AttackTarget: No target!"));
-		OutResult = EBehaviacStatus::Failure;
-		return;
+		if (AAIController* AIC = GetController<AAIController>()) AIC->StopMovement();
+		return EBehaviacStatus::Failure;
 	}
+	if (!CurrentTarget) return EBehaviacStatus::Failure;
 
-	// Trigger GAS combo ability
+	AAIController* AIC = GetController<AAIController>();
+	if (!AIC) return EBehaviacStatus::Failure;
+
+	float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+	if (Dist <= AttackRange) return EBehaviacStatus::Success;
+
+	GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
+	AIC->MoveToActor(CurrentTarget, AttackRange * 0.8f);
+	return EBehaviacStatus::Running;
+}
+
+EBehaviacStatus ABehaviacTestMinion::AttackTarget()
+{
+	if (BehaviacAgent && BehaviacAgent->GetPropertyValue(TEXT("AIState")) != TEXT("Combat"))
+	{
+		return EBehaviacStatus::Failure;
+	}
+	if (!CurrentTarget) return EBehaviacStatus::Failure;
+
+	float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+	if (Dist > CombatRange) return EBehaviacStatus::Failure;
+
+	// Trigger GAS combo ability (Crunch-specific)
 	UAbilitySystemComponent* ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(this);
 	if (ASC)
 	{
-		// Use BasicAttack input ID (minions use this for their attack combo)
 		ASC->PressInputID(static_cast<int32>(ECAbilityInputID::BasicAttack));
-		
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] ATTACKING %s!"), *CurrentTarget->GetName());
-		OutResult = EBehaviacStatus::Success;
+		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s ATTACKING %s!"), *GetName(), *CurrentTarget->GetName());
+		return EBehaviacStatus::Success;
 	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("[BehaviacTestMinion] No AbilitySystemComponent!"));
-		OutResult = EBehaviacStatus::Failure;
-	}
+
+	UE_LOG(LogTemp, Error, TEXT("[BehaviacTestMinion] %s: no AbilitySystemComponent!"), *GetName());
+	return EBehaviacStatus::Failure;
 }
 
-void ABehaviacTestMinion::ExecutePatrolToGoal(EBehaviacStatus& OutResult)
+EBehaviacStatus ABehaviacTestMinion::StopMovement()
 {
-	// Use the Goal system inherited from AMinion
-	if (AAIController* AIController = GetController<AAIController>())
-	{
-		// Try to get goal from blackboard (if using UE5 BT hybrid)
-		// For pure Behaviac, we'll just use a simple patrol behavior
-		
-		UE_LOG(LogTemp, Log, TEXT("[BehaviacTestMinion] Patrolling (no specific goal)"));
-		
-		// Simple patrol: just stand still for now
-		// In a real implementation, you'd move to waypoints or the goal actor
-		OutResult = EBehaviacStatus::Success;
-	}
-	else
-	{
-		OutResult = EBehaviacStatus::Failure;
-	}
+	if (AAIController* AIC = GetController<AAIController>()) AIC->StopMovement();
+	return EBehaviacStatus::Success;
 }
+
+EBehaviacStatus ABehaviacTestMinion::FaceTarget()
+{
+	if (!CurrentTarget) return EBehaviacStatus::Failure;
+	FVector Dir = (CurrentTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+	FRotator Look = Dir.Rotation();
+	Look.Pitch = 0.f;
+	Look.Roll  = 0.f;
+	SetActorRotation(Look);
+	return EBehaviacStatus::Success;
+}
+
+EBehaviacStatus ABehaviacTestMinion::SetWalkSpeed()
+{
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	return EBehaviacStatus::Success;
+}
+
+EBehaviacStatus ABehaviacTestMinion::SetRunSpeed()
+{
+	GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
+	return EBehaviacStatus::Success;
+}
+
+EBehaviacStatus ABehaviacTestMinion::MoveToLastKnownPos()
+{
+	if (!bHasLastKnownPos) return EBehaviacStatus::Failure;
+
+	AAIController* AIC = GetController<AAIController>();
+	if (!AIC) return EBehaviacStatus::Failure;
+
+	if (FVector::Dist(GetActorLocation(), LastKnownPlayerPos) < 100.0f)
+	{
+		return EBehaviacStatus::Success;
+	}
+
+	EPathFollowingRequestResult::Type Result = AIC->MoveToLocation(LastKnownPlayerPos, 80.0f);
+	return (Result != EPathFollowingRequestResult::Failed)
+		? EBehaviacStatus::Running : EBehaviacStatus::Failure;
+}
+
+EBehaviacStatus ABehaviacTestMinion::LookAround()
+{
+	FRotator Current = GetActorRotation();
+	Current.Yaw += 45.0f * LookAroundDir;
+	LookAroundDir = -LookAroundDir;
+	SetActorRotation(Current);
+	return EBehaviacStatus::Success;
+}
+
+EBehaviacStatus ABehaviacTestMinion::ClearLastKnownPos()
+{
+	bHasLastKnownPos = false;
+	LastKnownPlayerPos = FVector::ZeroVector;
+	CurrentTarget = nullptr;
+	if (BehaviacAgent)
+	{
+		BehaviacAgent->SetPropertyValue(TEXT("AIState"), TEXT("Patrol"));
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: investigation complete, back to patrol"), *GetName());
+	return EBehaviacStatus::Success;
+}
+
+EBehaviacStatus ABehaviacTestMinion::ReturnToPost()
+{
+	AAIController* AIC = GetController<AAIController>();
+	if (!AIC) return EBehaviacStatus::Failure;
+
+	if (FVector::Dist(GetActorLocation(), GuardCenter) < 100.0f)
+	{
+		if (BehaviacAgent)
+		{
+			BehaviacAgent->SetPropertyValue(TEXT("AIState"), TEXT("Patrol"));
+		}
+		return EBehaviacStatus::Success;
+	}
+
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	EPathFollowingRequestResult::Type Result = AIC->MoveToLocation(GuardCenter, 80.0f);
+	return (Result != EPathFollowingRequestResult::Failed)
+		? EBehaviacStatus::Running : EBehaviacStatus::Failure;
+}
+
+bool ABehaviacTestMinion::IsPlayerInRange()
+{
+	APawn* Player = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
+	if (!Player) return false;
+	return FVector::Dist(GetActorLocation(), Player->GetActorLocation()) <= DetectionRadius;
+}
+
+// ============================================================
+// Blackboard property sync
+// ============================================================
 
 void ABehaviacTestMinion::UpdateBehaviacProperties()
 {
-	if (!BehaviacAgent)
-	{
-		return;
-	}
+	if (!BehaviacAgent) return;
 
-	// Update health
-	// Note: ACCharacter has health via GAS attributes
-	// For simplicity, we'll use a placeholder
+	// Health via GAS (placeholder — extend when GAS attribute getter is available)
 	BehaviacAgent->SetIntProperty(TEXT("Health"), 100);
 
-	// Update HasTarget
-	bool bHasTarget = (CurrentTarget != nullptr);
-	BehaviacAgent->SetBoolProperty(TEXT("HasTarget"), bHasTarget);
+	BehaviacAgent->SetBoolProperty(TEXT("HasTarget"), CurrentTarget != nullptr);
 
-	// Update distance to target
-	float Distance = 999999.0f;
+	float Dist = 999999.0f;
 	if (CurrentTarget)
 	{
-		Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+		Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
 	}
-	BehaviacAgent->SetFloatProperty(TEXT("DistanceToTarget"), Distance);
+	BehaviacAgent->SetFloatProperty(TEXT("DistanceToTarget"), Dist);
 
-	// Update movement state
-	bool bIsMoving = GetCharacterMovement() && GetCharacterMovement()->Velocity.Size() > 10.0f;
-	BehaviacAgent->SetBoolProperty(TEXT("IsMoving"), bIsMoving);
+	bool bMoving = GetCharacterMovement() && GetCharacterMovement()->Velocity.SizeSquared() > 100.0f;
+	BehaviacAgent->SetBoolProperty(TEXT("IsMoving"), bMoving);
 }

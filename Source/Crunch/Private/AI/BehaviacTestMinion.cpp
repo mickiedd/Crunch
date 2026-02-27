@@ -2,6 +2,7 @@
 
 #include "AI/BehaviacTestMinion.h"
 #include "AIController.h"
+#include "GenericTeamAgentInterface.h"
 #include "BrainComponent.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Navigation/PathFollowingComponent.h"
@@ -174,36 +175,62 @@ void ABehaviacTestMinion::Tick(float DeltaTime)
 }
 
 // ============================================================
+// Goal assignment (called by MinionBarrack)
+// ============================================================
+
+void ABehaviacTestMinion::SetGoal(AActor* Goal)
+{
+	// When using Behaviac AI the native UBlackboardComponent is not initialised
+	// (BT was stopped in BeginPlay), so bypass AMinion::SetGoal and store the
+	// goal actor directly for PatrolToGoal() to use.
+	if (bUseBehaviacAI)
+	{
+		GoalActor = Goal;
+		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: GoalActor set to %s"),
+			*GetName(), Goal ? *Goal->GetName() : TEXT("null"));
+		return;
+	}
+
+	// Behaviac disabled — delegate to native blackboard path.
+	Super::SetGoal(Goal);
+}
+
+// ============================================================
 // Target detection
 // ============================================================
 
 bool ABehaviacTestMinion::FindTargetViaPerception()
 {
+	// Use AIPerception's hostile-only list first — mirrors ACAIController which
+	// configures SightConfig with bDetectEnemies=true / bDetectFriendlies=false.
 	if (AAIController* AIC = GetController<AAIController>())
 	{
 		if (UAIPerceptionComponent* Perc = AIC->GetAIPerceptionComponent())
 		{
-			TArray<AActor*> Perceived;
-			Perc->GetCurrentlyPerceivedActors(nullptr, Perceived);
-			for (AActor* Actor : Perceived)
+			TArray<AActor*> HostileActors;
+			Perc->GetPerceivedHostileActors(HostileActors);
+			if (HostileActors.Num() > 0)
 			{
-				if (Actor && Actor != this)
-				{
-					CurrentTarget = Actor;
-					return true;
-				}
+				CurrentTarget = HostileActors[0];
+				return true;
 			}
 		}
 	}
-	// Fall back to nearest player pawn within detection radius
+
+	// Fallback: manual radius scan, but only accept actors that are
+	// ETeamAttitude::Hostile toward us (same logic as the rest of the codebase).
 	if (APawn* Player = UGameplayStatics::GetPlayerPawn(GetWorld(), 0))
 	{
 		if (FVector::Dist(GetActorLocation(), Player->GetActorLocation()) <= DetectionRadius)
 		{
-			CurrentTarget = Player;
-			return true;
+			if (GetTeamAttitudeTowards(*Player) == ETeamAttitude::Hostile)
+			{
+				CurrentTarget = Player;
+				return true;
+			}
 		}
 	}
+
 	CurrentTarget = nullptr;
 	return false;
 }
@@ -282,9 +309,37 @@ EBehaviacStatus ABehaviacTestMinion::Patrol()
 
 EBehaviacStatus ABehaviacTestMinion::PatrolToGoal()
 {
-	// Prefer Crunch's AMinion goal-actor system if available.
-	// Falls back to standard patrol loop when no goal is assigned.
-	// (Extend this once AMinion exposes a GoalActor/GoalLocation getter.)
+	AAIController* AIC = GetController<AAIController>();
+	if (!AIC) return EBehaviacStatus::Failure;
+
+	// ── If a Goal actor is assigned (set by MinionBarrack), march toward it ──
+	if (GoalActor)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+
+		// Already at goal — keep returning Success so the BT loops back here
+		// and the minion idles at the objective.
+		if (FVector::Dist(GetActorLocation(), GoalActor->GetActorLocation()) < MoveAcceptanceRadius)
+		{
+			return EBehaviacStatus::Success;
+		}
+
+		UPathFollowingComponent* PF = AIC->GetPathFollowingComponent();
+		if (PF && PF->GetStatus() == EPathFollowingStatus::Moving)
+		{
+			return EBehaviacStatus::Running;
+		}
+
+		EPathFollowingRequestResult::Type Result = AIC->MoveToActor(GoalActor, MoveAcceptanceRadius);
+		if (Result == EPathFollowingRequestResult::Failed)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s PatrolToGoal: MoveToActor failed (no NavMesh?)"), *GetName());
+			return EBehaviacStatus::Failure;
+		}
+		return EBehaviacStatus::Running;
+	}
+
+	// ── No goal assigned: fall back to waypoint patrol ring ──────────────────
 	return Patrol();
 }
 

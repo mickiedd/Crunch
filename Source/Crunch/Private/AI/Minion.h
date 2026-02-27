@@ -39,7 +39,7 @@ public:
 
     bool IsActive() const;
     void Activate();
-    void SetGoal(AActor* Goal);
+    virtual void SetGoal(AActor* Goal);
 
 private:
     void PickSkinBasedOnTeamID();

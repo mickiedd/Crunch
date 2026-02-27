@@ -47,6 +47,12 @@ class ABehaviacTestMinion : public AMinion
 public:
 	ABehaviacTestMinion();
 
+	// Override SetGoal so MinionBarrack works transparently with Behaviac minions.
+	// Native AMinion::SetGoal() writes to the UBlackboardComponent which doesn't
+	// exist when the BT is stopped. We capture the goal actor directly instead.
+	virtual void SetGoal(AActor* Goal) override;
+
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -63,7 +69,7 @@ public:
 
 	// Fallback: path-based loading (used when BehaviorTree asset is not set)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviac AI")
-	FString BehaviorTreeAssetPath = TEXT("MinionTestTree");
+	FString BehaviorTreeAssetPath = TEXT("MinionCombatTree");
 
 	// ── AI tuning ──────────────────────────────────────────────────────
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|State")
@@ -123,6 +129,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "AI|Actions")
 	EBehaviacStatus PatrolToGoal();
+
+	// Goal actor assigned by MinionBarrack (mirrors the native BB "Goal" key).
+	// Set this instead of calling AMinion::SetGoal() when using Behaviac AI.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|State")
+	AActor* GoalActor = nullptr;
 
 	// ── Conditions ────────────────────────────────────────────────────
 	UFUNCTION(BlueprintCallable, Category = "AI|Conditions")

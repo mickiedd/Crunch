@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MinionCombatTree - Behaviac equivalent of the native Minion_BT.
+
+  Mirrors the native UE5 behavior tree exactly:
+
+    Native BT:
+      Selector
+        [Decorator: BB Target Is Set, aborts both]
+        Sequence
+          MoveTo: Target
+          RotateToFace: Target
+          SendInputToAbilitySystem     ← GAS BasicAttack
+        MoveTo: Goal                   ← default march/patrol
+
+    Behaviac equivalent:
+      Parallel (CHILDFINISH_LOOP)
+        [0] DecoratorAlwaysSuccess → FindPlayer   ← re-checks target every tick
+                                                    (mirrors "aborts both" reactivity)
+        [1] DecoratorLoop(-1) → SelectorLoop
+              WithPrecondition(HasTarget==true)   ← same as "Target Is Set" condition
+              Sequence
+                MoveToTarget                      ← MoveTo: Target
+                FaceTarget                        ← RotateToFaceBBEntry: Target
+                AttackTarget                      ← SendInputToAbilitySystem
+              PatrolToGoal (fallthrough)          ← MoveTo: Goal
+
+  Blackboard keys used (set by FindPlayer / BehaviacTestMinion):
+    HasTarget (bool) - true when CurrentTarget is valid
+
+  To use this tree:
+    In ABehaviacTestMinion (Blueprint or level instance), set:
+      BehaviorTreeAssetPath = "MinionCombatTree"
+    or assign the asset reference to BehaviorTree.
+-->
+<behavior name="MinionCombatTree" agenttype="BehaviacTestMinion" version="5">
+
+  <node class="Parallel" id="1">
+    <property name="Name" value="Root"/>
+    <property name="FailurePolicy" value="FailOnOne_SucceedOnAll"/>
+    <property name="ChildFinishPolicy" value="CHILDFINISH_LOOP"/>
+
+    <!-- ── CHILD 0: Target sensor (runs every tick, never blocks) ─────
+         Mirrors "Blackboard Based Condition (aborts both)" — continuously
+         calls FindPlayer so HasTarget stays current each tick.           -->
+    <node class="DecoratorAlwaysSuccess" id="2">
+      <node class="Action" id="3">
+        <property name="Name" value="FindPlayer"/>
+        <property name="Method" value="FindPlayer"/>
+      </node>
+    </node>
+
+    <!-- ── CHILD 1: Behaviour selector (loops forever) ───────────────── -->
+    <node class="DecoratorLoop" id="4">
+      <property name="Count" value="-1"/>
+
+      <node class="SelectorLoop" id="5">
+        <property name="Name" value="BehaviourSelector"/>
+
+        <!-- BRANCH 1: COMBAT — when a target is acquired ────────────────
+             Native: [BB Target Is Set] → MoveTo Target → RotateFace → Attack -->
+        <node class="WithPrecondition" id="6">
+          <node class="Condition" id="7">
+            <property name="Opl" value="Self.HasTarget"/>
+            <property name="Operator" value="Equal"/>
+            <property name="Opr" value="true"/>
+          </node>
+          <node class="Sequence" id="8">
+            <property name="Name" value="CombatSequence"/>
+
+            <!-- MoveTo: Target -->
+            <node class="Action" id="9">
+              <property name="Name" value="MoveToTarget"/>
+              <property name="Method" value="MoveToTarget"/>
+            </node>
+
+            <!-- RotateToFaceBBEntry: Target -->
+            <node class="Action" id="10">
+              <property name="Name" value="FaceTarget"/>
+              <property name="Method" value="FaceTarget"/>
+            </node>
+
+            <!-- SendInputToAbilitySystem (GAS BasicAttack) -->
+            <node class="Action" id="11">
+              <property name="Name" value="AttackTarget"/>
+              <property name="Method" value="AttackTarget"/>
+            </node>
+
+          </node>
+        </node>
+
+        <!-- BRANCH 2: PATROL — fallthrough when no target ───────────────
+             Native: MoveTo: Goal                                          -->
+        <node class="Sequence" id="12">
+          <property name="Name" value="PatrolSequence"/>
+
+          <!-- MoveTo: Goal (uses Crunch's goal-actor system if set,
+               falls back to patrol waypoints otherwise)                  -->
+          <node class="Action" id="13">
+            <property name="Name" value="PatrolToGoal"/>
+            <property name="Method" value="PatrolToGoal"/>
+          </node>
+
+        </node>
+
+      </node><!-- /SelectorLoop -->
+    </node><!-- /DecoratorLoop -->
+
+  </node><!-- /Parallel -->
+
+</behavior>

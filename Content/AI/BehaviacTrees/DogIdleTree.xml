@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DogIdleTree.xml
+  Minimal Behaviac behavior tree for idle dogs (prevents crash).
+  The dog will simply wait forever.
+-->
+<behavior version="1" agenttype="ABehaviacDog">
+    <node class="Wait">
+        <property name="Time" value="9999"/>
+    </node>
+</behavior>

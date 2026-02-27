@@ -18,14 +18,17 @@ void ABehaviacAnimalBase::BeginPlay()
 
 	// ── Load behavior tree ─────────────────────────────────────────────
 	bool bLoaded = false;
-	if (BehaviorTree)
+	if (BehaviacAgent)
 	{
-		bLoaded = BehaviacAgent->LoadBehaviorTree(BehaviorTree);
-	}
-	else if (!BehaviorTreeAssetPath.IsEmpty())
-	{
-		BehaviacAgent->LoadBehaviorTreeByPath(BehaviorTreeAssetPath);
-		bLoaded = true; // path-based load doesn't return bool
+		if (BehaviorTree)
+		{
+			bLoaded = BehaviacAgent->LoadBehaviorTree(BehaviorTree);
+		}
+		else if (!BehaviorTreeAssetPath.IsEmpty())
+		{
+			BehaviacAgent->LoadBehaviorTreeByPath(BehaviorTreeAssetPath);
+			bLoaded = true; // path-based load doesn't return bool
+		}
 	}
 
 	if (bLoaded)
@@ -35,6 +38,8 @@ void ABehaviacAnimalBase::BeginPlay()
 	else
 	{
 		UE_LOG(LogTemp, Error, TEXT("[Behaviac] %s: failed to load behavior tree!"), *GetName());
+		// Early return to avoid null dereference if tree is missing
+		return;
 	}
 }
 

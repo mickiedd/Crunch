@@ -6,9 +6,10 @@
 // Sets default values
 ABehaviacDog::ABehaviacDog()
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
+	// Set a safe default idle tree (prevents crash if not set in editor)
+	BehaviorTreeAssetPath = TEXT("AI/BehaviacTrees/DogIdleTree");
 }
 
 // Called when the game starts or when spawned

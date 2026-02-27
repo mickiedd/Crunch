@@ -261,15 +261,29 @@ EBehaviacStatus ABehaviacTestMinion::MoveToTarget()
 	if (!AIC) return EBehaviacStatus::Failure;
 
 	float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+
+	// Already in attack range — report Success so the Sequence advances to FaceTarget/Attack.
+	if (Dist <= AttackRange)
+	{
+		AIC->StopMovement();
+		return EBehaviacStatus::Success;
+	}
+
 	GetCharacterMovement()->MaxWalkSpeed = (Dist > DetectionRadius * 0.5f) ? RunSpeed : WalkSpeed;
 
 	EPathFollowingRequestResult::Type Result = AIC->MoveToActor(
-		CurrentTarget, MoveAcceptanceRadius, true, true, false, nullptr, true);
+		CurrentTarget, AttackRange * 0.8f, true, true, false, nullptr, true);
 
+	// AlreadyAtGoal also means we're close enough — treat as success.
+	if (Result == EPathFollowingRequestResult::AlreadyAtGoal)
+	{
+		return EBehaviacStatus::Success;
+	}
 	if (Result == EPathFollowingRequestResult::RequestSuccessful)
 	{
 		return EBehaviacStatus::Running;
 	}
+
 	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] MoveToTarget: move request failed"));
 	return EBehaviacStatus::Failure;
 }
@@ -454,26 +468,31 @@ EBehaviacStatus ABehaviacTestMinion::ChasePlayer()
 
 EBehaviacStatus ABehaviacTestMinion::AttackTarget()
 {
-	if (BehaviacAgent && BehaviacAgent->GetPropertyValue(TEXT("AIState")) != TEXT("Combat"))
+	if (!CurrentTarget) return EBehaviacStatus::Failure;
+
+	// Check still in range — if target moved away, fail so the Sequence restarts
+	// from MoveToTarget and closes the gap again.
+	float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+	if (Dist > CombatRange)
 	{
 		return EBehaviacStatus::Failure;
 	}
-	if (!CurrentTarget) return EBehaviacStatus::Failure;
 
-	float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-	if (Dist > CombatRange) return EBehaviacStatus::Failure;
-
-	// Trigger GAS combo ability (Crunch-specific)
 	UAbilitySystemComponent* ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(this);
-	if (ASC)
+	if (!ASC)
 	{
-		ASC->PressInputID(static_cast<int32>(ECAbilityInputID::BasicAttack));
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s ATTACKING %s!"), *GetName(), *CurrentTarget->GetName());
-		return EBehaviacStatus::Success;
+		UE_LOG(LogTemp, Error, TEXT("[BehaviacTestMinion] %s: no AbilitySystemComponent!"), *GetName());
+		return EBehaviacStatus::Failure;
 	}
 
-	UE_LOG(LogTemp, Error, TEXT("[BehaviacTestMinion] %s: no AbilitySystemComponent!"), *GetName());
-	return EBehaviacStatus::Failure;
+	// GA_Combo is driven by WaitInputPress internally — it plays the montage and
+	// waits for repeated presses to chain sections.  Mirror what the native BT's
+	// SendInputToAbilitySystem does: press the input to activate/advance the combo.
+	// Return Running so the BT stays here (the XML Wait node handles timing between
+	// presses to match the combo window).
+	ASC->PressInputID(static_cast<int32>(ECAbilityInputID::BasicAttack));
+	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: PressInputID BasicAttack"), *GetName());
+	return EBehaviacStatus::Running;
 }
 
 EBehaviacStatus ABehaviacTestMinion::StopMovement()

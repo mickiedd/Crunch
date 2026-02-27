@@ -58,7 +58,12 @@
         <property name="Name" value="BehaviourSelector"/>
 
         <!-- BRANCH 1: COMBAT — when a target is acquired ────────────────
-             Native: [BB Target Is Set] → MoveTo Target → RotateFace → Attack -->
+             Mirrors native: [BB Target Is Set] → MoveTo Target → RotateFace → Attack
+             MoveToTarget returns Success when in AttackRange, Running while closing.
+             AttackTarget presses BasicAttack input (feeds GA_Combo WaitInputPress).
+             The inner loop keeps pressing at ~1.0s intervals to chain combo sections.
+             If target moves out of CombatRange, AttackTarget returns Failure →
+             Sequence restarts, MoveToTarget closes the gap again.              -->
         <node class="WithPrecondition" id="6">
           <node class="Condition" id="7">
             <property name="Opl" value="Self.HasTarget"/>
@@ -68,22 +73,36 @@
           <node class="Sequence" id="8">
             <property name="Name" value="CombatSequence"/>
 
-            <!-- MoveTo: Target -->
-            <node class="Action" id="9">
-              <property name="Name" value="MoveToTarget"/>
-              <property name="Method" value="MoveToTarget"/>
+            <!-- Close distance — returns Running until in AttackRange, then Success -->
+            <node class="DecoratorLoopUntil" id="9">
+              <property name="UntilSuccess" value="true"/>
+              <node class="Action" id="10">
+                <property name="Name" value="MoveToTarget"/>
+                <property name="Method" value="MoveToTarget"/>
+              </node>
             </node>
 
-            <!-- RotateToFaceBBEntry: Target -->
-            <node class="Action" id="10">
+            <!-- Face the target before attacking -->
+            <node class="Action" id="11">
               <property name="Name" value="FaceTarget"/>
               <property name="Method" value="FaceTarget"/>
             </node>
 
-            <!-- SendInputToAbilitySystem (GAS BasicAttack) -->
-            <node class="Action" id="11">
-              <property name="Name" value="AttackTarget"/>
-              <property name="Method" value="AttackTarget"/>
+            <!-- Attack loop: press BasicAttack input → wait for combo window → repeat.
+                 AttackTarget returns Failure if target moves out of CombatRange,
+                 breaking this loop so the outer Sequence restarts from MoveToTarget. -->
+            <node class="DecoratorLoop" id="12">
+              <property name="Count" value="-1"/>
+              <node class="Sequence" id="13">
+                <node class="Action" id="14">
+                  <property name="Name" value="AttackTarget"/>
+                  <property name="Method" value="AttackTarget"/>
+                </node>
+                <!-- Wait ~1.0s between presses to feed GA_Combo's WaitInputPress window -->
+                <node class="Wait" id="15">
+                  <property name="Time" value="1.0"/>
+                </node>
+              </node>
             </node>
 
           </node>

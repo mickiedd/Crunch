@@ -3,11 +3,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "BehaviacAnimalBase.h"
 #include "GameFramework/Character.h"
 #include "BehaviacDog.generated.h"
 
 UCLASS()
-class ABehaviacDog : public ACharacter
+class ABehaviacDog : public ABehaviacAnimalBase
 {
 	GENERATED_BODY()
 

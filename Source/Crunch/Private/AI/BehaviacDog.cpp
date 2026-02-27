@@ -15,7 +15,7 @@ ABehaviacDog::ABehaviacDog()
 void ABehaviacDog::BeginPlay()
 {
 	Super::BeginPlay();
-	
+
 }
 
 // Called every frame

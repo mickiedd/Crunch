@@ -16,10 +16,11 @@ ABehaviacPenguin::ABehaviacPenguin()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
-	// The base class (ABehaviacAnimalBase) declares BehaviacAgent but never
-	// creates the subobject.  We do it here so BeginPlay can use it safely.
+	// The base class (ABehaviacAnimalBase) creates the BehaviacAgent
+	// subobject, so do not recreate it here.  Just configure it if present.
+	// Create Behaviac agent component
 	BehaviacAgent = CreateDefaultSubobject<UBehaviacAgentComponent>(TEXT("BehaviacAgent"));
-	// We tick the tree manually from Tick() for deterministic ordering.
+	// Manually tick from our own Tick() for ordering control
 	BehaviacAgent->bAutoTick = false;
 
 	// Defaults
@@ -30,6 +31,15 @@ ABehaviacPenguin::ABehaviacPenguin()
 	TickCounter           = 0;
 	SpawnLocation         = FVector::ZeroVector;
 	WanderTarget          = FVector::ZeroVector;
+
+	if (BehaviacAgent)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent component created"), *GetName(), this);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("[BehaviacPenguin] %s: failed to create BehaviacAgent component!"), *GetName());
+	}
 }
 
 // ============================================================
@@ -38,6 +48,29 @@ ABehaviacPenguin::ABehaviacPenguin()
 
 void ABehaviacPenguin::BeginPlay()
 {
+
+	Super::BeginPlay();
+
+	// ── 0. Recover BehaviacAgent if Blueprint serialization nulled it ──
+	// CreateDefaultSubobject sets BehaviacAgent in the constructor, but
+	// Blueprint property deserialization runs after construction and can
+	// overwrite the UPROPERTY with the Blueprint CDO's stored null value.
+	// FindComponentByClass retrieves the already-created component from
+	// the actor's component list, restoring the pointer before we use it.
+	if (!BehaviacAgent)
+	{
+		BehaviacAgent = FindComponentByClass<UBehaviacAgentComponent>();
+		if (BehaviacAgent)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent pointer recovered via FindComponentByClass (Blueprint CDO deserialization had nulled it)"), *GetName(), this);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent component truly missing — cannot run behavior tree"), *GetName(), this);
+			return;
+		}
+	}
+
 	// ── 1. Record spawn origin for wander-radius calculations ──────────
 	SpawnLocation = GetActorLocation();
 
@@ -60,10 +93,36 @@ void ABehaviacPenguin::BeginPlay()
 	// ── 4. Load behavior tree (ABehaviacAnimalBase::BeginPlay handles this)
 	//      Set BehaviorTree asset reference in BP_Penguin's Details panel, or
 	//      set BehaviorTreeAssetPath to "PenguinWanderTree" for path-based load.
-	Super::BeginPlay();
 
-	UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s: initialized at %s, WanderRadius=%.0f"),
-		*GetName(), *SpawnLocation.ToString(), WanderRadius);
+	// ── Load behavior tree ─────────────────────────────────────────────
+	bool bLoaded = false;
+	if (BehaviacAgent)
+	{
+		if (BehaviorTree)
+		{
+			bLoaded = BehaviacAgent->LoadBehaviorTree(BehaviorTree);
+			UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s: behavior tree loaded from asset reference"), *GetName());
+		}
+		else if (!BehaviorTreeAssetPath.IsEmpty())
+		{
+			BehaviacAgent->LoadBehaviorTreeByPath(BehaviorTreeAssetPath);
+			UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s: behavior tree loaded from asset path"), *GetName());
+			bLoaded = true; // path-based load doesn't return bool
+		}
+	}
+	if (bLoaded)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s %p: behavior tree loaded OK"), *GetName(), this);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Behaviac] %s %p: failed to load behavior tree!"), *GetName(), this);
+		// Early return to avoid null dereference if tree is missing
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s %p: initialized at %s, WanderRadius=%.0f"),
+		*GetName(), this, *SpawnLocation.ToString(), WanderRadius);
 }
 
 // ============================================================

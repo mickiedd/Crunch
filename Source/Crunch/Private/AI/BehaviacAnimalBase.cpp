@@ -6,8 +6,10 @@
 // Sets default values
 ABehaviacAnimalBase::ABehaviacAnimalBase()
 {
- 	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
+	// Create Behaviac agent component
+	BehaviacAgent = CreateDefaultSubobject<UBehaviacAgentComponent>(TEXT("BehaviacAgent"));
+	// Manually tick from our own Tick() for ordering control
+	BehaviacAgent->bAutoTick = false;
 
 }
 
@@ -16,6 +18,20 @@ void ABehaviacAnimalBase::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (!BehaviacAgent)
+	{
+		BehaviacAgent = FindComponentByClass<UBehaviacAgentComponent>();
+		if (BehaviacAgent)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent pointer recovered via FindComponentByClass (Blueprint CDO deserialization had nulled it)"), *GetName(), this);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent component truly missing — cannot run behavior tree"), *GetName(), this);
+			return;
+		}
+	}
+
 	// ── Load behavior tree ─────────────────────────────────────────────
 	bool bLoaded = false;
 	if (BehaviacAgent)
@@ -23,21 +39,22 @@ void ABehaviacAnimalBase::BeginPlay()
 		if (BehaviorTree)
 		{
 			bLoaded = BehaviacAgent->LoadBehaviorTree(BehaviorTree);
+			UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s: behavior tree loaded from asset reference"), *GetName());
 		}
 		else if (!BehaviorTreeAssetPath.IsEmpty())
 		{
 			BehaviacAgent->LoadBehaviorTreeByPath(BehaviorTreeAssetPath);
+			UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s: behavior tree loaded from asset path"), *GetName());
 			bLoaded = true; // path-based load doesn't return bool
 		}
 	}
-
 	if (bLoaded)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s: behavior tree loaded OK"), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s %p: behavior tree loaded OK"), *GetName(), this);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("[Behaviac] %s: failed to load behavior tree!"), *GetName());
+		UE_LOG(LogTemp, Error, TEXT("[Behaviac] %s %p: failed to load behavior tree!"), *GetName(), this);
 		// Early return to avoid null dereference if tree is missing
 		return;
 	}

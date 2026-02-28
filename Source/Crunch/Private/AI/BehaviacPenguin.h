@@ -23,7 +23,7 @@
 #include "BehaviacPenguin.generated.h"
 
 UCLASS()
-class ABehaviacPenguin : public ABehaviacAnimalBase
+class ABehaviacPenguin : public ACharacter
 {
 	GENERATED_BODY()
 
@@ -65,6 +65,16 @@ public:
 	/** Snap to a random yaw (penguin looks around curiously).  Always succeeds. */
 	UFUNCTION(BlueprintCallable, Category = "AI|Actions")
 	EBehaviacStatus LookAround();
+
+	// Asset-reference approach (preferred — set in Blueprint/level)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviac AI")
+	UBehaviacBehaviorTree* BehaviorTree;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviac AI")
+	FString BehaviorTreeAssetPath;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Behaviac AI", meta = (AllowPrivateAccess = "true"))
+	UBehaviacAgentComponent* BehaviacAgent;
 
 private:
 	// Sync blackboard properties from current game state

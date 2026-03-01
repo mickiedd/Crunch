@@ -13,6 +13,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "BehaviacAgent.h"
 #include "BehaviorTree/BehaviacBehaviorTree.h"
+#include "BehaviacTypes.h"
 
 ABehaviacTestMinion::ABehaviacTestMinion()
 {
@@ -54,18 +55,18 @@ void ABehaviacTestMinion::BeginPlay()
 			if (AIC->BrainComponent)
 			{
 				AIC->BrainComponent->StopLogic("Behaviac AI enabled");
-				UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: stopped native UE5 BT system"), *GetName());
+				BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s: stopped native UE5 BT system"), *GetName());
 			}
 		}
 	}
 
 	if (!bUseBehaviacAI || !BehaviacAgent)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: using default UE5 BT"), *GetName());
+		BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s: using default UE5 BT"), *GetName());
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: initializing Behaviac AI"), *GetName());
+	BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s: initializing Behaviac AI"), *GetName());
 
 	// Guard post at spawn
 	GuardCenter = GetActorLocation();
@@ -125,11 +126,11 @@ void ABehaviacTestMinion::BeginPlay()
 
 	if (bLoaded)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: behavior tree loaded OK"), *GetName());
+		BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s: behavior tree loaded OK"), *GetName());
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("[BehaviacTestMinion] %s: failed to load behavior tree!"), *GetName());
+		UE_LOG(LogBehaviac, Error, TEXT("[BehaviacTestMinion] %s: failed to load behavior tree!"), *GetName());
 	}
 }
 
@@ -157,7 +158,7 @@ void ABehaviacTestMinion::Tick(float DeltaTime)
 	// Debug every ~2s at 60fps
 	if (TickCounter % 120 == 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s tick #%d → %s | AIState=%s"),
+		BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s tick #%d → %s | AIState=%s"),
 			*GetName(), TickCounter,
 			Status == EBehaviacStatus::Running ? TEXT("Running") :
 			Status == EBehaviacStatus::Success ? TEXT("Success") : TEXT("Failure"),
@@ -168,7 +169,7 @@ void ABehaviacTestMinion::Tick(float DeltaTime)
 	DebugTimer += DeltaTime;
 	if (DebugTimer >= 5.0f)
 	{
-		UE_LOG(LogTemp, Log, TEXT("[BehaviacTestMinion] %s Pos=%s Vel=%.0f"),
+		BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s Pos=%s Vel=%.0f"),
 			*GetName(), *GetActorLocation().ToString(), GetVelocity().Size());
 		DebugTimer = 0.0f;
 	}
@@ -186,7 +187,7 @@ void ABehaviacTestMinion::SetGoal(AActor* Goal)
 	if (bUseBehaviacAI)
 	{
 		GoalActor = Goal;
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: GoalActor set to %s"),
+		BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s: GoalActor set to %s"),
 			*GetName(), Goal ? *Goal->GetName() : TEXT("null"));
 		return;
 	}
@@ -253,7 +254,7 @@ EBehaviacStatus ABehaviacTestMinion::MoveToTarget()
 {
 	if (!CurrentTarget)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] MoveToTarget: no target"));
+		BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] MoveToTarget: no target"));
 		return EBehaviacStatus::Failure;
 	}
 
@@ -284,7 +285,7 @@ EBehaviacStatus ABehaviacTestMinion::MoveToTarget()
 		return EBehaviacStatus::Running;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] MoveToTarget: move request failed"));
+	BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] MoveToTarget: move request failed"));
 	return EBehaviacStatus::Failure;
 }
 
@@ -315,7 +316,7 @@ EBehaviacStatus ABehaviacTestMinion::Patrol()
 	EPathFollowingRequestResult::Type Result = AIC->MoveToLocation(Target, 50.0f);
 	if (Result == EPathFollowingRequestResult::Failed)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] Patrol: MoveToLocation failed (no NavMesh?)"));
+		BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] Patrol: MoveToLocation failed (no NavMesh?)"));
 		return EBehaviacStatus::Failure;
 	}
 	return EBehaviacStatus::Running;
@@ -347,7 +348,7 @@ EBehaviacStatus ABehaviacTestMinion::PatrolToGoal()
 		EPathFollowingRequestResult::Type Result = AIC->MoveToActor(GoalActor, MoveAcceptanceRadius);
 		if (Result == EPathFollowingRequestResult::Failed)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s PatrolToGoal: MoveToActor failed (no NavMesh?)"), *GetName());
+			BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s PatrolToGoal: MoveToActor failed (no NavMesh?)"), *GetName());
 			return EBehaviacStatus::Failure;
 		}
 		return EBehaviacStatus::Running;
@@ -438,7 +439,7 @@ EBehaviacStatus ABehaviacTestMinion::UpdateAIState()
 		FString OldState = BehaviacAgent->GetPropertyValue(TEXT("AIState"));
 		if (OldState != NewState)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s AIState: %s → %s"), *GetName(), *OldState, *NewState);
+			BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s AIState: %s → %s"), *GetName(), *OldState, *NewState);
 			BehaviacAgent->SetPropertyValue(TEXT("AIState"), NewState);
 		}
 	}
@@ -481,7 +482,7 @@ EBehaviacStatus ABehaviacTestMinion::AttackTarget()
 	UAbilitySystemComponent* ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(this);
 	if (!ASC)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[BehaviacTestMinion] %s: no AbilitySystemComponent!"), *GetName());
+		UE_LOG(LogBehaviac, Error, TEXT("[BehaviacTestMinion] %s: no AbilitySystemComponent!"), *GetName());
 		return EBehaviacStatus::Failure;
 	}
 
@@ -491,7 +492,7 @@ EBehaviacStatus ABehaviacTestMinion::AttackTarget()
 	// Return Running so the BT stays here (the XML Wait node handles timing between
 	// presses to match the combo window).
 	ASC->PressInputID(static_cast<int32>(ECAbilityInputID::BasicAttack));
-	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: PressInputID BasicAttack"), *GetName());
+	BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s: PressInputID BasicAttack"), *GetName());
 	return EBehaviacStatus::Running;
 }
 
@@ -559,7 +560,7 @@ EBehaviacStatus ABehaviacTestMinion::ClearLastKnownPos()
 	{
 		BehaviacAgent->SetPropertyValue(TEXT("AIState"), TEXT("Patrol"));
 	}
-	UE_LOG(LogTemp, Warning, TEXT("[BehaviacTestMinion] %s: investigation complete, back to patrol"), *GetName());
+	BEHAVIAC_VLOG(TEXT("[BehaviacTestMinion] %s: investigation complete, back to patrol"), *GetName());
 	return EBehaviacStatus::Success;
 }
 

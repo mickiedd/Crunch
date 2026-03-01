@@ -8,7 +8,7 @@
     2. MoveToWanderTarget  — walk there (Running until arrived, then Success)
     3. StopMovement        — halt navigation cleanly
     4. Wait 1.5 s          — pause at destination before looking around
-    5. LookAround          — snap to random yaw (penguin curiosity)
+    5. LookAround          — smoothly rotate to random yaw (Running until within 2°)
     6. Wait 3.0 s          — rest period before the next wander
 
   Import this file into the Unreal Editor Content Browser
@@ -52,7 +52,8 @@
                 <property name="Time" value="1.5"/>
             </node>
 
-            <!-- Step 5: look around curiously (snaps to random yaw) -->
+            <!-- Step 5: look around curiously (smooth yaw interpolation via TurnInterpSpeed) -->
+            <!-- Returns Running until the turn is within 2°, then Success -->
             <node class="Action">
                 <property name="Method" value="LookAround"/>
             </node>

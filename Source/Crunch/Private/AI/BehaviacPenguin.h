@@ -62,9 +62,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AI|Actions")
 	EBehaviacStatus StopMovement();
 
-	/** Snap to a random yaw (penguin looks around curiously).  Always succeeds. */
+	/**
+	 * Smoothly rotate to a random yaw (penguin looks around curiously).
+	 * Returns Running while turning, Success when within 5° of target.
+	 * Turn speed is tunable via TurnInterpSpeed.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "AI|Actions")
 	EBehaviacStatus LookAround();
+
+	/** Degrees per second used when interpolating the LookAround turn */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Wander")
+	float TurnInterpSpeed = 120.f;
 
 	// Asset-reference approach (preferred — set in Blueprint/level)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviac AI")
@@ -89,4 +97,12 @@ private:
 
 	// Debug tick counter
 	int32 TickCounter;
+
+	// ── LookAround state ──────────────────────────────────────────────
+	/** Target yaw set by LookAround(); interpolated toward in Tick() */
+	float LookAroundTargetYaw;
+	/** True while we are interpolating toward LookAroundTargetYaw */
+	bool  bLookingAround;
+	/** Set by Tick() when the turn finishes; causes LookAround() to return Success */
+	bool  bLookAroundComplete;
 };

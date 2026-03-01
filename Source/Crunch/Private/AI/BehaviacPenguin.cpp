@@ -7,6 +7,7 @@
 #include "Navigation/PathFollowingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "BehaviacAgent.h"
+#include "BehaviacTypes.h"
 
 // ============================================================
 // Constructor
@@ -31,14 +32,17 @@ ABehaviacPenguin::ABehaviacPenguin()
 	TickCounter           = 0;
 	SpawnLocation         = FVector::ZeroVector;
 	WanderTarget          = FVector::ZeroVector;
+	LookAroundTargetYaw   = 0.f;
+	bLookingAround        = false;
+	bLookAroundComplete   = false;
 
 	if (BehaviacAgent)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent component created"), *GetName(), this);
+		BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] %s %p: BehaviacAgent component created"), *GetName(), this);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("[BehaviacPenguin] %s: failed to create BehaviacAgent component!"), *GetName());
+		UE_LOG(LogBehaviac, Error, TEXT("[BehaviacPenguin] %s: failed to create BehaviacAgent component!"), *GetName());
 	}
 }
 
@@ -62,11 +66,11 @@ void ABehaviacPenguin::BeginPlay()
 		BehaviacAgent = FindComponentByClass<UBehaviacAgentComponent>();
 		if (BehaviacAgent)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent pointer recovered via FindComponentByClass (Blueprint CDO deserialization had nulled it)"), *GetName(), this);
+			BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] %s %p: BehaviacAgent pointer recovered via FindComponentByClass (Blueprint CDO deserialization had nulled it)"), *GetName(), this);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent component truly missing — cannot run behavior tree"), *GetName(), this);
+			UE_LOG(LogBehaviac, Error, TEXT("[BehaviacPenguin] %s %p: BehaviacAgent component truly missing — cannot run behavior tree"), *GetName(), this);
 			return;
 		}
 	}
@@ -101,27 +105,27 @@ void ABehaviacPenguin::BeginPlay()
 		if (BehaviorTree)
 		{
 			bLoaded = BehaviacAgent->LoadBehaviorTree(BehaviorTree);
-			UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s: behavior tree loaded from asset reference"), *GetName());
+			BEHAVIAC_VLOG(TEXT("[Behaviac] %s: behavior tree loaded from asset reference"), *GetName());
 		}
 		else if (!BehaviorTreeAssetPath.IsEmpty())
 		{
 			BehaviacAgent->LoadBehaviorTreeByPath(BehaviorTreeAssetPath);
-			UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s: behavior tree loaded from asset path"), *GetName());
+			BEHAVIAC_VLOG(TEXT("[Behaviac] %s: behavior tree loaded from asset path"), *GetName());
 			bLoaded = true; // path-based load doesn't return bool
 		}
 	}
 	if (bLoaded)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Behaviac] %s %p: behavior tree loaded OK"), *GetName(), this);
+		BEHAVIAC_VLOG(TEXT("[Behaviac] %s %p: behavior tree loaded OK"), *GetName(), this);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("[Behaviac] %s %p: failed to load behavior tree!"), *GetName(), this);
+		UE_LOG(LogBehaviac, Error, TEXT("[Behaviac] %s %p: failed to load behavior tree!"), *GetName(), this);
 		// Early return to avoid null dereference if tree is missing
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s %p: initialized at %s, WanderRadius=%.0f"),
+	BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] %s %p: initialized at %s, WanderRadius=%.0f"),
 		*GetName(), this, *SpawnLocation.ToString(), WanderRadius);
 }
 
@@ -138,6 +142,27 @@ void ABehaviacPenguin::Tick(float DeltaTime)
 	// Sync IsMoving for the animation blueprint (idle → running transition)
 	UpdateBehaviacProperties();
 
+	// ── Smooth LookAround interpolation ───────────────────────────────
+	// Driven independently of the BT tick so the rotation always feels
+	// fluid regardless of BT tick rate.
+	if (bLookingAround)
+	{
+		FRotator Current = GetActorRotation();
+		FRotator Target  = FRotator(Current.Pitch, LookAroundTargetYaw, Current.Roll);
+		FRotator NewRot  = FMath::RInterpConstantTo(Current, Target, DeltaTime, TurnInterpSpeed);
+		SetActorRotation(NewRot);
+
+		// Done when within 2° — tight enough to look precise, loose enough
+		// to avoid floating-point jitter keeping bLookingAround true forever.
+		float YawDelta = FMath::Abs(FMath::FindDeltaAngleDegrees(NewRot.Yaw, LookAroundTargetYaw));
+		if (YawDelta < 2.f)
+		{
+			SetActorRotation(Target); // snap to exact final value
+			bLookingAround      = false;
+			bLookAroundComplete = true;
+		}
+	}
+
 	// Manually tick the behavior tree
 	TickCounter++;
 	EBehaviacStatus Status = BehaviacAgent->TickBehaviorTree();
@@ -145,7 +170,7 @@ void ABehaviacPenguin::Tick(float DeltaTime)
 	// Log every ~5 s at 60 fps
 	if (TickCounter % 300 == 0)
 	{
-		UE_LOG(LogTemp, Log, TEXT("[BehaviacPenguin] %s tick#%d → %s | Pos=%s | IsMoving=%s"),
+		BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] %s tick#%d → %s | Pos=%s | IsMoving=%s"),
 			*GetName(), TickCounter,
 			Status == EBehaviacStatus::Running ? TEXT("Running") :
 			Status == EBehaviacStatus::Success ? TEXT("Success") : TEXT("Failure/Other"),
@@ -188,7 +213,7 @@ EBehaviacStatus ABehaviacPenguin::PickWanderTarget()
 
 	bHasWanderTarget = true;
 
-	UE_LOG(LogTemp, Log, TEXT("[BehaviacPenguin] %s: new wander target %s (dist=%.0f)"),
+	BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] %s: new wander target %s (dist=%.0f)"),
 		*GetName(), *WanderTarget.ToString(), Distance);
 
 	return EBehaviacStatus::Success;
@@ -206,14 +231,14 @@ EBehaviacStatus ABehaviacPenguin::MoveToWanderTarget()
 {
 	if (!bHasWanderTarget)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] MoveToWanderTarget: no target set"));
+		BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] MoveToWanderTarget: no target set"));
 		return EBehaviacStatus::Failure;
 	}
 
 	AAIController* AIC = GetController<AAIController>();
 	if (!AIC)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] MoveToWanderTarget: no AIController"));
+		BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] MoveToWanderTarget: no AIController"));
 		return EBehaviacStatus::Failure;
 	}
 
@@ -247,7 +272,7 @@ EBehaviacStatus ABehaviacPenguin::MoveToWanderTarget()
 	}
 
 	// Pathfinding failed — treat as success to avoid blocking the loop forever
-	UE_LOG(LogTemp, Warning, TEXT("[BehaviacPenguin] %s: MoveToLocation failed (target=%s) — skipping"),
+	BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] %s: MoveToLocation failed (target=%s) — skipping"),
 		*GetName(), *WanderTarget.ToString());
 	return EBehaviacStatus::Success;
 }
@@ -268,20 +293,33 @@ EBehaviacStatus ABehaviacPenguin::StopMovement()
 
 // ──────────────────────────────────────────────────────────────
 // LookAround
-//   Snaps the penguin to a random yaw so it appears to look
-//   around curiously while resting.  Always returns Success.
-//   The Wait node following this in the tree provides the pause.
+//   On the first call (bLookingAround == false): picks a random
+//   target yaw, enables the interpolation in Tick(), returns Running.
+//   On subsequent calls while turning: still Running.
+//   Once Tick() finishes the turn (bLookingAround flips false):
+//   returns Success so the BT can advance.
 // ──────────────────────────────────────────────────────────────
 EBehaviacStatus ABehaviacPenguin::LookAround()
 {
-	float RandomYaw = FMath::FRandRange(0.f, 360.f);
-	FRotator NewRotation = GetActorRotation();
-	NewRotation.Yaw = RandomYaw;
-	SetActorRotation(NewRotation);
+	// If Tick() finished the previous turn, report Success and reset for next time
+	if (bLookAroundComplete)
+	{
+		bLookAroundComplete = false;
+		return EBehaviacStatus::Success;
+	}
 
-	UE_LOG(LogTemp, Log, TEXT("[BehaviacPenguin] %s: looking at yaw=%.1f"),
-		*GetName(), RandomYaw);
+	// Start a new turn on the first call (bLookingAround not yet set)
+	if (!bLookingAround)
+	{
+		float CurrentYaw    = GetActorRotation().Yaw;
+		float Delta         = FMath::FRandRange(30.f, 330.f);
+		LookAroundTargetYaw = FRotator::ClampAxis(CurrentYaw + Delta);
+		bLookingAround      = true;
 
-	return EBehaviacStatus::Success;
+		BEHAVIAC_VLOG(TEXT("[BehaviacPenguin] %s: LookAround → target yaw=%.1f (delta=%.1f°)"),
+			*GetName(), LookAroundTargetYaw, Delta);
+	}
+
+	return EBehaviacStatus::Running;
 }
 
